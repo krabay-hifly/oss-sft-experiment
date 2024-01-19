@@ -4,6 +4,10 @@
 
 # COMMAND ----------
 
+#dbutils.library.restartPython()
+
+# COMMAND ----------
+
 #%pip install --upgrade azure-storage #not needed for 14.2
 #%pip install azure-storage-blob --upgrade #not needed for 14.2
 #%pip install "unstructured[docx,doc,pdf,pptx]"
@@ -12,8 +16,13 @@ from azure.core.credentials import AzureKeyCredential, AzureNamedKeyCredential
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 
 from unstructured.partition.pdf import partition_pdf
+from unstructured.partition.docx import partition_docx
+from unstructured.partition.doc import partition_doc
+from unstructured.partition.pptx import partition_pptx
+
 from unstructured.cleaners.core import clean
 
+from tqdm import tqdm
 from io import BytesIO
 import os
 
@@ -56,25 +65,85 @@ category_mapper = {
 
 # COMMAND ----------
 
-i = blob_list[16]
-i
+def partition_by_extension(ext, stream):
+
+    ext = ext.lower()
+
+    if ext == 'pdf':
+        return partition_pdf(file = stream)
+    if ext == 'docx':
+        return partition_docx(file = stream)
+    if ext == 'pptx':
+        return partition_pptx(file = stream)
 
 # COMMAND ----------
 
-blob_downloaded = container_client.download_blob(i)
+def load_data_to_large_chunks(blob_name):
+    
+    blob_downloaded = container_client.download_blob(blob_name)
 
-folder = os.path.dirname(i)
-category = category_mapper[folder]
-title = os.path.basename(i)
+    folder = os.path.dirname(blob_name)
+    category = category_mapper[folder]
+    title = os.path.basename(blob_name)
+    extension = title.split('.')[-1]
 
-stream = BytesIO()
-blob_downloaded.readinto(stream)
+    stream = BytesIO()
+    blob_downloaded.readinto(stream)
+    doc = partition_by_extension(extension, stream)
 
-doc = partition_pdf(file = stream)
-whole_doc = '\n'.join([i.text for i in doc])
+    chunks_from_each_page = []
 
-print(f"Doc's title: {title}")
-print(f"Doc's category: {category}")
+    if doc[-1].metadata.page_number:
+        
+        for page_num in range(doc[-1].metadata.page_number):
+            page_num = page_num+1
+            whole_doc = '\n'.join([i.text for i in doc if i.metadata.page_number == page_num])
+
+            chunk = {
+                        'title' : title,
+                        'page' : page_num,
+                        'category' : category,
+                        'content' : whole_doc
+                        }
+            
+            chunks_from_each_page.append(chunk)
+
+    else:    
+
+        whole_doc = '\n'.join([i.text for i in doc])
+
+        chunk = {
+            'title' : title,
+            'page' : 1,
+            'category' : category,
+            'content' : whole_doc
+            }
+        
+        chunks_from_each_page.append(chunk)
+
+    return chunks_from_each_page
+
+# COMMAND ----------
+
+# MAGIC %%time
+# MAGIC
+# MAGIC all_chunks = []
+# MAGIC errors = []
+# MAGIC
+# MAGIC for blob_name in tqdm(blob_list):
+# MAGIC     try:
+# MAGIC         chunk = load_data_to_large_chunks(blob_name)
+# MAGIC         all_chunks.append(chunk)
+# MAGIC     except:
+# MAGIC         errors.append(blob_name)
+
+# COMMAND ----------
+
+print(f"Num docs throwing error: {len(errors)}")
+
+# COMMAND ----------
+
+errors
 
 # COMMAND ----------
 
