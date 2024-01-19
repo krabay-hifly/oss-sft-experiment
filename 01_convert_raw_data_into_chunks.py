@@ -11,6 +11,11 @@
 #%pip install --upgrade azure-storage #not needed for 14.2
 #%pip install azure-storage-blob --upgrade #not needed for 14.2
 #%pip install "unstructured[docx,doc,pdf,pptx]"
+#needed to install libreoffice: https://gcore.com/learning/how-to-install-libri-office-on-ubuntu/
+#apt-get install -y poppler-utils 
+
+import warnings
+warnings.filterwarnings('ignore')
 
 from azure.core.credentials import AzureKeyCredential, AzureNamedKeyCredential
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
@@ -93,8 +98,8 @@ def load_data_to_large_chunks(blob_name):
 
     chunks_from_each_page = []
 
-    if doc[-1].metadata.page_number:
-        
+    if doc[-1].metadata.page_number & category != 'CV': #even is multiple pages, CVs should be kept as 1 doc
+
         for page_num in range(doc[-1].metadata.page_number):
             page_num = page_num+1
             whole_doc = '\n'.join([i.text for i in doc if i.metadata.page_number == page_num])
@@ -140,10 +145,14 @@ def load_data_to_large_chunks(blob_name):
 # COMMAND ----------
 
 print(f"Num docs throwing error: {len(errors)}")
+print(f"Num docs successfully processed: {len(all_chunks)}")
+
+# flatten list
+all_chunks = sum(all_chunks, [])
 
 # COMMAND ----------
 
-errors
+all_chunks
 
 # COMMAND ----------
 
