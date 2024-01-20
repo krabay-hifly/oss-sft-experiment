@@ -1,6 +1,11 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC ### Take chunks and create QA dataset for SFT
+# MAGIC
+# MAGIC Example notebooks / materials:
+# MAGIC - https://docs.llamaindex.ai/en/stable/examples/finetuning/knowledge/finetune_knowledge.html
+# MAGIC - https://arxiv.org/pdf/2401.08406.pdf
+# MAGIC - https://www.pinecone.io/blog/rag-study/
 
 # COMMAND ----------
 
@@ -31,11 +36,12 @@ openai.api_base = f"https://{config['az_oai']['endpoint']}.openai.azure.com"
 openai.api_type = 'azure'
 openai.api_version = '2023-05-15' 
 
-deployment_name=config['az_oai']['deployment']
+deployment_name_gpt_4_turbo = config['az_oai']['deployment_4']
+deployment_name_gpt_35_turbo = config['az_oai']['deployment_35']
 
 # COMMAND ----------
 
-def generate_response(messages, temperature = 0.0):
+def generate_response(messages, deployment_name = deployment_name_gpt_4_turbo, temperature = 0.0):
 
     completion = openai.ChatCompletion.create(
         engine=deployment_name, 
@@ -49,7 +55,14 @@ def generate_response(messages, temperature = 0.0):
 prompt = 'Write a tagline for an ice cream shop.'
 messages = [{'role' : 'user', 'content' : prompt}]
 
+print('GPT-4')
 response, usage = generate_response(messages)
+print(usage)
+print(response)
+
+print('-'*100)
+print('GPT-3.5')
+response, usage = generate_response(messages, deployment_name=deployment_name_gpt_35_turbo)
 print(usage)
 print(response)
 
@@ -128,9 +141,9 @@ def QuestionGenerator(context, category, title, num_questions_per_chunk):
 
 # COMMAND ----------
 
-avg_input_tokens = 1500
+avg_input_tokens = 1000
 input_cost = 0.01 / 1000
-avg_output_tokens = 200
+avg_output_tokens = 150
 output_cost = 0.03 / 1000
 
 avg_num_questions_per_chunk = 7
@@ -150,7 +163,7 @@ question_number = [2, 5, 10, 15]
 
 questions_generated = []
 
-for i in tqdm(chunks[-3:-1]):
+for i in tqdm(chunks):
     
     context = i['content']
     category = i['category']
@@ -170,6 +183,19 @@ for i in tqdm(chunks[-3:-1]):
 
     # sleep 2 secs after each API call
     time.sleep(2)
+
+# COMMAND ----------
+
+print(len(questions_generated))
+
+#with open('data/questions.json', 'w') as fout:
+#    json.dump(questions_generated, fout)
+
+# COMMAND ----------
+
+# to read
+#with open('data/questions.json') as json_file:
+#    questions = json.load(json_file)
 
 # COMMAND ----------
 
@@ -204,6 +230,24 @@ print(f'Actual cost in USD to generate questions: {cost_actual}')
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC Seems like I've overestimated price, questions were generated for a total cost of ~4 USD
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Flatten question list so that they can be fed 1-by-1 to `gpt-3.5-turbo` for answer generation
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
 
 
 # COMMAND ----------
@@ -213,13 +257,9 @@ print(f'Actual cost in USD to generate questions: {cost_actual}')
 
 # COMMAND ----------
 
-questions_generated[0]['questions'].split('\n')
-
-# COMMAND ----------
-
 def AnswerGenerator(context, category, title, question):
 
-    system_message = """You are an expert Q&A system that is trusted around the world. Always answer the query using the provided context information, and not prior knowledge. Some rules to follow:
+    system_message = """You are an expert Q&A system that is trusted around the world. Always answer the question using the provided context information, and not prior knowledge. Some rules to follow:
     1. Never directly reference the given context in your answer.
     2. Avoid statements like 'Based on the context, ...' or 'The context information ...' or anything along those lines."""
 
@@ -238,16 +278,33 @@ def AnswerGenerator(context, category, title, question):
     messages = [{'role' : 'system', 'content' : system_message},
                 {'role' : 'user', 'content' : instuction}]
 
-    response, usage = generate_response(messages)
+    response, usage = generate_response(messages, deployment_name = deployment_name_gpt_35_turbo)
 
     return response, usage
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Approximate cost for answer generation
+
+# COMMAND ----------
+
+avg_input_tokens = 1500
+input_cost = 0.0015 / 1000
+avg_output_tokens = 150
+output_cost = 0.002 / 1000
+
+avg_num_questions_per_chunk = 7
+
+cost_approximation_answer = len(chunks) * avg_num_questions_per_chunk * (avg_input_tokens * input_cost + avg_output_tokens * output_cost)
+print(f'Approx cost in USD to generate answers: {cost_approximation_answer}')
 
 # COMMAND ----------
 
 title = questions_generated[0]['title']
 category = questions_generated[0]['category']
 context = questions_generated[0]['content']
-question = questions_generated[0]['questions'].split('\n')[6]
+question = questions_generated[0]['questions'].split('\n')[0]
 
 answer, usage = AnswerGenerator(context, category, title, question)
 
@@ -260,12 +317,17 @@ print(f'Answer: {answer}')
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
-
-
+# MAGIC %md
+# MAGIC Check actual token usage for answer generation
 
 # COMMAND ----------
 
+total_input_tokens = sum([i['question_generation_token_usage']['prompt_tokens'] for i in questions_generated])
+input_cost = 0.01 / 1000
+total_output_tokens = sum([i['question_generation_token_usage']['completion_tokens'] for i in questions_generated])
+output_cost = 0.03 / 1000
 
+cost_actual_answer = (total_input_tokens * input_cost + total_output_tokens * output_cost)
+
+print(f'Approx cost in USD to generate answers: {cost_approximation_answer}')
+print(f'Actual cost in USD to generate answers: {cost_actual}')
