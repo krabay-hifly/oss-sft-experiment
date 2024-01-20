@@ -4,6 +4,12 @@
 # MAGIC
 # MAGIC Example notebooks / materials:
 # MAGIC - https://github.com/NielsRogge/Transformers-Tutorials/blob/master/Mistral/Supervised_fine_tuning_(SFT)_of_an_LLM_using_Hugging_Face_tooling.ipynb
+# MAGIC
+# MAGIC Infra
+# MAGIC - DBX ML Runtime: 14.2.x-gpu-ml-scala2.12
+# MAGIC - Worker type: Standard_NC8as_T4_v3
+# MAGIC   - 56GB RAM
+# MAGIC   - 1 GPU (NVIDIA T4)
 
 # COMMAND ----------
 
