@@ -30,6 +30,7 @@ from unstructured.cleaners.core import clean
 from tqdm import tqdm
 from io import BytesIO
 import os
+import json
 
 import yaml
 with open('config.yml', 'r') as file:
@@ -98,7 +99,7 @@ def load_data_to_large_chunks(blob_name):
 
     chunks_from_each_page = []
 
-    if doc[-1].metadata.page_number & category != 'CV': #even is multiple pages, CVs should be kept as 1 doc
+    if doc[-1].metadata.page_number and category != 'CV': #even is multiple pages, CVs should be kept as 1 doc
 
         for page_num in range(doc[-1].metadata.page_number):
             page_num = page_num+1
@@ -147,12 +148,21 @@ def load_data_to_large_chunks(blob_name):
 print(f"Num docs throwing error: {len(errors)}")
 print(f"Num docs successfully processed: {len(all_chunks)}")
 
-# flatten list
+# COMMAND ----------
+
 all_chunks = sum(all_chunks, [])
+print(f"Num docs after flattening list: {len(all_chunks)}")
 
 # COMMAND ----------
 
-all_chunks
+with open('data/chunks.json', 'w') as fout:
+    json.dump(all_chunks, fout)
+
+# COMMAND ----------
+
+# to read
+#with open('data/chunks.json') as json_file:
+#    test_read = json.load(json_file)
 
 # COMMAND ----------
 
