@@ -21,6 +21,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
@@ -378,14 +379,57 @@ with open('data/questions_and_answers_flattened.json', 'w') as fout:
 # COMMAND ----------
 
 total_input_tokens = sum([i['answer_generation_token_usage']['prompt_tokens'] for i in questions_answered])
-input_cost = 0.01 / 1000
+input_cost = 0.0015 / 1000
 total_output_tokens = sum([i['answer_generation_token_usage']['completion_tokens'] for i in questions_answered])
-output_cost = 0.03 / 1000
+output_cost = 0.002 / 1000
 
 cost_actual_answer = (total_input_tokens * input_cost + total_output_tokens * output_cost)
 
 print(f'Approx cost in USD to generate answers: {cost_approximation_answer}')
 print(f'Actual cost in USD to generate answers: {cost_actual_answer}')
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Total cost to generate QA dataset: ~7.5$
+
+# COMMAND ----------
+
+print(f'Total cost of generating QA dataset: {cost_actual_answer + cost_actual}')
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Create SFT dataset
+# MAGIC
+# MAGIC Have not selected model yet, but structure will be similar `{'instruction' : 'question', 'completion' : 'answer'}`
+# MAGIC
+# MAGIC Will save as `pandas.DataFrame`
+
+# COMMAND ----------
+
+df = pd.DataFrame(questions_answered)
+df = df.explode(['questions_split', 'answers'])
+df.to_csv('data/QA_dataset.csv', index = False, escapechar='\\')
+
+df[['questions_split', 'answers']].head(2)
+
+# COMMAND ----------
+
+!ls -lh data/
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Check word count so that neither Q nor A will be too long for whatever OSS model I'll be fine-tuning
+
+# COMMAND ----------
+
+df['questions_split'].apply(lambda x: len(x.split())).hist(bins = 50)
+
+# COMMAND ----------
+
+df['answers'].apply(lambda x: len(x.split())).hist(bins = 100)
 
 # COMMAND ----------
 
