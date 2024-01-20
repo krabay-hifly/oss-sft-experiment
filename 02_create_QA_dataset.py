@@ -25,6 +25,9 @@ import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 import time
+from collections import Counter
+from functools import reduce
+from operator import add
 
 import json
 import yaml
@@ -240,15 +243,26 @@ print(f'Actual cost in USD to generate questions: {cost_actual}')
 
 # COMMAND ----------
 
+for i in questions_generated:
 
+  i['questions_split'] = i['questions'].split('\n')
+  i['questions_split'] = [i.strip() for i in i['questions_split']] # remove trailing ws if any
+  i['questions_split'] = [i for i in i['questions_split'] if i != ''] # remove empty strings after splitting
+  i['questions_split'] = [i.lstrip('0123456789.- ') for i in i['questions_split']] # remove numbering from string beginning
 
 # COMMAND ----------
 
-
+all_questions_flattened = len(sum([i['questions_split'] for i in questions_generated], []))
+print(f"Total # of questions generated for QA SFT dataset: {all_questions_flattened}")
 
 # COMMAND ----------
 
+#with open('data/questions_flattened.json', 'w') as fout:
+#    json.dump(questions_generated, fout)
 
+# COMMAND ----------
+
+!ls -lh data/
 
 # COMMAND ----------
 
@@ -259,11 +273,14 @@ print(f'Actual cost in USD to generate questions: {cost_actual}')
 
 def AnswerGenerator(context, category, title, question):
 
-    system_message = """You are an expert Q&A system that is trusted around the world. Always answer the question using the provided context information, and not prior knowledge. Some rules to follow:
-    1. Never directly reference the given context in your answer.
-    2. Avoid statements like 'Based on the context, ...' or 'The context information ...' or anything along those lines."""
+    system_message = """You are an expert Q&A system that is trusted around the world."""
 
     instuction = f"""
+    Always answer the question using the provided context information, and not prior knowledge. Some rules to follow:
+    1. Never directly reference the given context in your answer.
+    2. Avoid statements like 'Based on the context, ...' or 'The context information ...' or anything along those lines.
+    3. Give detailed, thorough, long answers, mention all information that may be important or relevant to both the question and your response.
+
     Context information is below: 
     The document is a {category}, it's title is {title}.
 
@@ -284,27 +301,10 @@ def AnswerGenerator(context, category, title, question):
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC Approximate cost for answer generation
-
-# COMMAND ----------
-
-avg_input_tokens = 1500
-input_cost = 0.0015 / 1000
-avg_output_tokens = 150
-output_cost = 0.002 / 1000
-
-avg_num_questions_per_chunk = 7
-
-cost_approximation_answer = len(chunks) * avg_num_questions_per_chunk * (avg_input_tokens * input_cost + avg_output_tokens * output_cost)
-print(f'Approx cost in USD to generate answers: {cost_approximation_answer}')
-
-# COMMAND ----------
-
-title = questions_generated[0]['title']
-category = questions_generated[0]['category']
-context = questions_generated[0]['content']
-question = questions_generated[0]['questions'].split('\n')[0]
+title = questions_generated[66]['title']
+category = questions_generated[66]['category']
+context = questions_generated[66]['content']
+question = questions_generated[66]['questions_split'][6]
 
 answer, usage = AnswerGenerator(context, category, title, question)
 
@@ -313,7 +313,62 @@ print(f'Answer: {answer}')
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC Approximate cost for answer generation
 
+# COMMAND ----------
+
+avg_input_tokens = 1000
+input_cost = 0.0015 / 1000
+avg_output_tokens = 200
+output_cost = 0.002 / 1000
+
+cost_approximation_answer = all_questions_flattened * (avg_input_tokens * input_cost + avg_output_tokens * output_cost)
+print(f'Approx cost in USD to generate answers: {cost_approximation_answer}')
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Run answer generation
+
+# COMMAND ----------
+
+questions_answered = []
+
+for i in tqdm(questions_generated):
+    
+    title = i['title']
+    category = i['category']
+    context = i['content']
+    questions = i['questions_split']
+
+    answers = []
+    usages = []
+    for question in questions:
+        answer, usage = AnswerGenerator(context, category, title, question)
+        answers.append(answer)
+        usages.append(usage)
+
+    usages = dict(reduce(add, map(Counter, usages)))
+
+    output = {**i, 
+              'answers' : answers,
+              'answer_generation_token_usage' : usages}
+    questions_answered.append(output)
+
+    # sleep 2 secs after each API call
+    time.sleep(2)
+
+# COMMAND ----------
+
+print(len(questions_answered))
+
+with open('data/questions_and_answers_flattened.json', 'w') as fout:
+    json.dump(questions_answered, fout)
+
+# COMMAND ----------
+
+!ls -lh data/
 
 # COMMAND ----------
 
@@ -322,12 +377,16 @@ print(f'Answer: {answer}')
 
 # COMMAND ----------
 
-total_input_tokens = sum([i['question_generation_token_usage']['prompt_tokens'] for i in questions_generated])
+total_input_tokens = sum([i['answer_generation_token_usage']['prompt_tokens'] for i in questions_answered])
 input_cost = 0.01 / 1000
-total_output_tokens = sum([i['question_generation_token_usage']['completion_tokens'] for i in questions_generated])
+total_output_tokens = sum([i['answer_generation_token_usage']['completion_tokens'] for i in questions_answered])
 output_cost = 0.03 / 1000
 
 cost_actual_answer = (total_input_tokens * input_cost + total_output_tokens * output_cost)
 
 print(f'Approx cost in USD to generate answers: {cost_approximation_answer}')
-print(f'Actual cost in USD to generate answers: {cost_actual}')
+print(f'Actual cost in USD to generate answers: {cost_actual_answer}')
+
+# COMMAND ----------
+
+
