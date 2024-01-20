@@ -19,6 +19,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
+import time
 
 import json
 import yaml
@@ -82,7 +83,7 @@ print(len(chunks))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Put together prompt for Question generation
+# MAGIC #### Put together prompt for Question generation
 
 # COMMAND ----------
 
@@ -149,7 +150,7 @@ question_number = [2, 5, 10, 15]
 
 questions_generated = []
 
-for i in tqdm(chunks[66:68]):
+for i in tqdm(chunks[-3:-1]):
     
     context = i['content']
     category = i['category']
@@ -167,13 +168,22 @@ for i in tqdm(chunks[66:68]):
               'question_generation_token_usage' : usage}
     questions_generated.append(output)
 
+    # sleep 2 secs after each API call
+    time.sleep(2)
+
 # COMMAND ----------
 
-print(f"Title: {questions_generated[0]['title']}")
-print(f"Category: {questions_generated[0]['category']}")
-print(f"# of questions: {questions_generated[0]['questions_number']}")
-print(f"Questions: {questions_generated[0]['questions']}")
-print(f"Token usage: {questions_generated[0]['question_generation_token_usage']}")
+def check_Q_examples(doc):
+    
+    print(f"Title: {doc['title']}")
+    print(f"Category: {doc['category']}")
+    print(f"# of questions: {doc['questions_number']}")
+    print(f"Questions: {doc['questions']}")
+    print(f"Token usage: {doc['question_generation_token_usage']}")
+
+# COMMAND ----------
+
+check_Q_examples(questions_generated[0])
 
 # COMMAND ----------
 
@@ -191,3 +201,71 @@ cost_actual = (total_input_tokens * input_cost + total_output_tokens * output_co
 
 print(f'Approx cost in USD to generate questions: {cost_approximation}')
 print(f'Actual cost in USD to generate questions: {cost_actual}')
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Put together prompt for Answer generation
+
+# COMMAND ----------
+
+questions_generated[0]['questions'].split('\n')
+
+# COMMAND ----------
+
+def AnswerGenerator(context, category, title, question):
+
+    system_message = """You are an expert Q&A system that is trusted around the world. Always answer the query using the provided context information, and not prior knowledge. Some rules to follow:
+    1. Never directly reference the given context in your answer.
+    2. Avoid statements like 'Based on the context, ...' or 'The context information ...' or anything along those lines."""
+
+    instuction = f"""
+    Context information is below: 
+    The document is a {category}, it's title is {title}.
+
+    {context}
+
+    Given the context information and not prior knowledge, answer the question below:
+    {question}
+
+    Answer: 
+    """
+
+    messages = [{'role' : 'system', 'content' : system_message},
+                {'role' : 'user', 'content' : instuction}]
+
+    response, usage = generate_response(messages)
+
+    return response, usage
+
+# COMMAND ----------
+
+title = questions_generated[0]['title']
+category = questions_generated[0]['category']
+context = questions_generated[0]['content']
+question = questions_generated[0]['questions'].split('\n')[6]
+
+answer, usage = AnswerGenerator(context, category, title, question)
+
+print(f'Question: {question}')
+print(f'Answer: {answer}')
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
