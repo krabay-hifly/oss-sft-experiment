@@ -18,6 +18,8 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import matplotlib.pyplot as plt
 
+from tqdm import tqdm
+
 import json
 import yaml
 with open('config.yml', 'r') as file:
@@ -40,7 +42,7 @@ def generate_response(messages, temperature = 0.0):
         temperature=temperature)
     
     response = completion.choices[0]['message']['content']
-    usage = completion.usage
+    usage = completion.usage.to_dict()
     return response, usage
     
 prompt = 'Write a tagline for an ice cream shop.'
@@ -79,4 +81,113 @@ print(len(chunks))
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC Put together prompt for Question generation
 
+# COMMAND ----------
+
+def QuestionGenerator(context, category, title, num_questions_per_chunk):
+
+    system_message = "You are a Teacher / Professor. Your task is to setup a quiz / examination to assess the knowledge of a student about given context"
+
+    instuction = f"""
+    Using the provided context, formulate {num_questions_per_chunk} questions that capture important facts from the context.
+    You must obey the following criteria:
+    - Restrict the question to the context information
+    - Do not create questions that cannot be answered from the context
+    - Phrase the question so that it does not refer to specific context. For example, do NOT put phrases like 'given provided context' or 'in this work' in the question, because when the question is asked elsewhere it wouldn't be provided specific context. Replace these terms with specific details.
+
+    BAD questions:
+    - What did the author do in his childhood?
+    - What were the main findings in this report?
+
+    GOOD questions:
+    - What did Obama do in his childhood?
+    - What were the main finding of the original Transformer paper by Vaswani et al?
+
+    Here is the context:
+    {context}
+
+    The document is a {category}, it's title is {title}.
+
+    Generate the questions below:
+    """
+
+    messages = [{'role' : 'system', 'content' : system_message},
+                {'role' : 'user', 'content' : instuction}]
+
+    response, usage = generate_response(messages)
+
+    return response, usage
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Approximate cost pre-generation
+
+# COMMAND ----------
+
+avg_input_tokens = 1500
+input_cost = 0.01 / 1000
+avg_output_tokens = 200
+output_cost = 0.03 / 1000
+
+avg_num_questions_per_chunk = 7
+
+cost_approximation = len(chunks) * avg_num_questions_per_chunk * (avg_input_tokens * input_cost + avg_output_tokens * output_cost)
+print(f'Approx cost in USD to generate questions: {cost_approximation}')
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Tie question number to content length
+
+# COMMAND ----------
+
+content_length_intervals = [range(100), range(100, 250), range(250, 500), range(500, max(word_count_in_chunks)*100) ]
+question_number = [2, 5, 10, 15]
+
+questions_generated = []
+
+for i in tqdm(chunks[66:68]):
+    
+    context = i['content']
+    category = i['category']
+    title = i['title']
+
+    word_count = len(i['content'].split())
+    range_lookup = [word_count in i for i in content_length_intervals]
+    num_questions_per_chunk = question_number[range_lookup.index(max(range_lookup))]
+
+    questions, usage = QuestionGenerator(context, category, title, num_questions_per_chunk)
+
+    output = {**i, 
+              'questions' : questions,
+              'questions_number' : num_questions_per_chunk,
+              'question_generation_token_usage' : usage}
+    questions_generated.append(output)
+
+# COMMAND ----------
+
+print(f"Title: {questions_generated[0]['title']}")
+print(f"Category: {questions_generated[0]['category']}")
+print(f"# of questions: {questions_generated[0]['questions_number']}")
+print(f"Questions: {questions_generated[0]['questions']}")
+print(f"Token usage: {questions_generated[0]['question_generation_token_usage']}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Check actual token usage and compare to approximate cost
+
+# COMMAND ----------
+
+total_input_tokens = sum([i['question_generation_token_usage']['prompt_tokens'] for i in questions_generated])
+input_cost = 0.01 / 1000
+total_output_tokens = sum([i['question_generation_token_usage']['completion_tokens'] for i in questions_generated])
+output_cost = 0.03 / 1000
+
+cost_actual = (total_input_tokens * input_cost + total_output_tokens * output_cost)
+
+print(f'Approx cost in USD to generate questions: {cost_approximation}')
+print(f'Actual cost in USD to generate questions: {cost_actual}')
