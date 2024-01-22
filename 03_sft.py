@@ -210,13 +210,14 @@ training_args = TrainingArguments(
 )
 
 # based on config
+# https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
 peft_config = LoraConfig(
         r=64,
         lora_alpha=16,
         lora_dropout=0.1,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"], #https://github.com/huggingface/transformers/blob/main/src/transformers/models/mistral/modeling_mistral.py#L225
 )
 
 trainer = SFTTrainer(
