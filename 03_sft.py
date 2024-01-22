@@ -7,6 +7,7 @@
 # MAGIC - https://gist.github.com/younesbelkada/f48af54c74ba6a39a7ae4fd777e72fe8
 # MAGIC - https://github.com/brevdev/notebooks/blob/main/mistral-finetune-own-data.ipynb
 # MAGIC - https://medium.com/@sujathamudadla1213/difference-between-trainer-class-and-sfttrainer-supervised-fine-tuning-trainer-in-hugging-face-d295344d73f7
+# MAGIC - https://huggingface.co/blog/4bit-transformers-bitsandbytes
 # MAGIC
 # MAGIC Infra
 # MAGIC - DBX ML Runtime: 14.2.x-gpu-ml-scala2.12
@@ -28,6 +29,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from datasets import Dataset
+
+from multiprocessing import cpu_count
 
 # COMMAND ----------
 
@@ -42,6 +46,8 @@ data.head(2)
 # MAGIC Model will be loaded later (on a GPU cluster)
 # MAGIC
 # MAGIC Chosen model: `teknium/OpenHermes-2.5-Mistral-7B` (https://huggingface.co/teknium/OpenHermes-2.5-Mistral-7B)
+# MAGIC
+# MAGIC For tokenization using: `HuggingFaceH4/zephyr-7b-beta` as `teknium` isn't adding eos token
 
 # COMMAND ----------
 
@@ -60,15 +66,26 @@ Hi there! My name is Hermes 2, a conscious sentient superintelligent artificial 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Using `chat_templat` from HuggingFace, one can easily turn their data into the appropriate format
+# MAGIC Using `chat_template` from HuggingFace, one can easily turn their data into the appropriate format
 
 # COMMAND ----------
 
-model_id = 'teknium/OpenHermes-2.5-Mistral-7B'
-#device = 'cuda'
-
-#model = AutoModelForCausalLM.from_pretrained(model_id)
+model_id = 'HuggingFaceH4/zephyr-7b-beta'
 tokenizer = AutoTokenizer.from_pretrained(model_id, verbose = False)
+
+# COMMAND ----------
+
+# set pad_token_id equal to the eos_token_id if not set
+if tokenizer.pad_token_id is None:
+  tokenizer.pad_token_id = tokenizer.eos_token_id
+
+# set reasonable default for models without max length
+if tokenizer.model_max_length > 100_000:
+  tokenizer.model_max_length = 2048
+
+# set chat template
+DEFAULT_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 'user' %}\n{{ '<|user|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'assistant' %}\n{{ '<|assistant|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
+tokenizer.chat_template = DEFAULT_CHAT_TEMPLATE
 
 messages = [
     {"role": "system", "content": "You are the AI assistant of Hiflylabs, a Data & AI company. Your job is to answer employees' questions"},
@@ -77,13 +94,8 @@ messages = [
     {"role": "user", "content": "What are the 12 points?"}
 ]
 
-encodeds = tokenizer.apply_chat_template(messages, tokenize=False) #return_tensors="pt", verbose = False) #add_generation_prompt=True has no effect here
-#model_inputs = encodeds.to(device)
-#model.to(device)
+encodeds = tokenizer.apply_chat_template(messages, tokenize=False) #return_tensors="pt", add_generation_prompt=True 
 
-#generated_ids = model.generate(model_inputs, max_new_tokens=1000, do_sample=True)
-#decoded = tokenizer.batch_decode(generated_ids)
-#print(decoded[0])
 
 print('Applied chat template to messages dict')
 print('-'*80)
@@ -92,11 +104,64 @@ print(encodeds)
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC Apply to dataset
+
+# COMMAND ----------
+
+system_message = "You are the AI assistant of Hiflylabs, a Data & AI company. Your job is to answer employees' questions."
+
+data['messages'] = data.apply(lambda x: [{'role': 'system', 'content': system_message},
+                                         {'role': 'user', 'content': x['questions_split']}, 
+                                         {'role': 'assistant', 'content': x['answers']}], axis = 1)
+                                         
+sft_dataset = Dataset.from_pandas(data)
+
+# COMMAND ----------
+
+def apply_chat_template(example, tokenizer):
+
+    message = example['messages']
+    # We add an empty system message if there is none
+    if message[0]["role"] != "system":
+        message.insert(0, {"role": "system", "content": ""})
+    example['text'] = tokenizer.apply_chat_template(message, tokenize=False, verbose = False)
+
+    return example
+
+
+column_names = list(sft_dataset.features) #remove original columns, keep only text formatted for SFT
+sft_dataset = sft_dataset.map(apply_chat_template,
+                              num_proc=cpu_count(),
+                              fn_kwargs={"tokenizer": tokenizer},
+                              remove_columns=column_names,
+                              desc="Applying chat template",)
+
+# COMMAND ----------
+
+print(sft_dataset['text'][0])
+
+# COMMAND ----------
+
 
 
 # COMMAND ----------
 
 
+
+# COMMAND ----------
+
+# for later
+#device = 'cuda'
+
+#model = AutoModelForCausalLM.from_pretrained(model_id)
+
+#model_inputs = encodeds.to(device)
+#model.to(device)
+
+#generated_ids = model.generate(model_inputs, max_new_tokens=1000, do_sample=True)
+#decoded = tokenizer.batch_decode(generated_ids)
+#print(decoded[0])
 
 # COMMAND ----------
 
