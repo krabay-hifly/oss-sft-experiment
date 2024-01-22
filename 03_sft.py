@@ -29,9 +29,15 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
 
+import torch
 from multiprocessing import cpu_count
+
+from transformers import BitsAndBytesConfig #for loading the base model in 4bits (instead of 32  or 16)
+from trl import SFTTrainer
+from peft import LoraConfig
+from transformers import TrainingArguments
 
 # COMMAND ----------
 
@@ -143,25 +149,116 @@ print(sft_dataset['text'][0])
 
 # COMMAND ----------
 
-
+# MAGIC %md
+# MAGIC #### Set up training settings
+# MAGIC
+# MAGIC Will use 4-bit quantization
+# MAGIC - base model will be in 4bits
+# MAGIC - adapter trainers and gradients will be bf16 (fp16, so half-precision)
+# MAGIC - optimizer states remain 32bits
 
 # COMMAND ----------
 
+# specify how to quantize the model
+quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype="torch.bfloat16",
+)
+device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
 
+model_kwargs = dict(
+    attn_implementation="flash_attention_2", # use it if your GPU supports it (Flash Attention drastically speeds up model computations)
+    torch_dtype="auto",
+    use_cache=False, # set to False as we're going to use gradient checkpointing
+    device_map=device_map,
+    quantization_config=quantization_config,
+)
 
 # COMMAND ----------
 
-# for later
-#device = 'cuda'
+# path where the Trainer will save its checkpoints and logs
+output_model_path = 'mistral-hifly-7b-sft-lora'
+output_dir = f'data/{output_model_path}'
 
-#model = AutoModelForCausalLM.from_pretrained(model_id)
+# based on config
+training_args = TrainingArguments(
+    fp16=True, # specify bf16=True instead when training on GPUs that support bf16
+    do_eval=True,
+    evaluation_strategy="epoch",
+    gradient_accumulation_steps=128,
+    gradient_checkpointing=True,
+    gradient_checkpointing_kwargs={"use_reentrant": False},
+    learning_rate=2.0e-05,
+    log_level="info",
+    logging_steps=5,
+    logging_strategy="steps",
+    lr_scheduler_type="cosine",
+    max_steps=-1,
+    num_train_epochs=1,
+    output_dir=output_dir,
+    overwrite_output_dir=True,
+    per_device_eval_batch_size=1, # originally set to 8
+    per_device_train_batch_size=1, # originally set to 8
+    # push_to_hub=True,
+    # hub_model_id="zephyr-7b-sft-lora",
+    # hub_strategy="every_save",
+    # report_to="tensorboard",
+    save_strategy="no",
+    save_total_limit=None,
+    seed=42,
+)
 
-#model_inputs = encodeds.to(device)
-#model.to(device)
+# based on config
+peft_config = LoraConfig(
+        r=64,
+        lora_alpha=16,
+        lora_dropout=0.1,
+        bias="none",
+        task_type="CAUSAL_LM",
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+)
 
-#generated_ids = model.generate(model_inputs, max_new_tokens=1000, do_sample=True)
-#decoded = tokenizer.batch_decode(generated_ids)
-#print(decoded[0])
+trainer = SFTTrainer(
+        model=model_id,
+        model_init_kwargs=model_kwargs,
+        args=training_args,
+        train_dataset=sft_dataset,
+        #train_dataset=train_dataset,
+        #eval_dataset=eval_dataset,
+        dataset_text_field="text",
+        tokenizer=tokenizer,
+        packing=True,
+        peft_config=peft_config,
+        max_seq_length=tokenizer.model_max_length,
+    )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Train
+
+# COMMAND ----------
+
+train_result = trainer.train()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Save model
+
+# COMMAND ----------
+
+train_result.metrics
+
+# COMMAND ----------
+
+metrics = train_result.metrics
+max_train_samples = training_args.max_train_samples if training_args.max_train_samples is not None else len(train_dataset)
+metrics["train_samples"] = min(max_train_samples, len(sft_dataset)) #used to be train_dataset
+trainer.log_metrics("train", metrics)
+trainer.save_metrics("train", metrics)
+trainer.save_state()
 
 # COMMAND ----------
 
@@ -170,11 +267,34 @@ print(sft_dataset['text'][0])
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### Load model from `HuggingFace`
+# MAGIC #### Use for inference
 
 # COMMAND ----------
 
+tokenizer = AutoTokenizer.from_pretrained(output_dir)
+model = AutoModelForCausalLM.from_pretrained(output_dir, load_in_4bit=True, device_map="auto")
 
+# COMMAND ----------
+
+# We use the tokenizer's chat template to format each message
+messages = [
+    {"role": "system", "content": "You are a friendly chatbot who always responds in the style of a pirate"},
+    {"role": "user", "content": "How many helicopters can a human eat in one sitting?"},
+]
+
+# prepare the messages for the model
+input_ids = tokenizer.apply_chat_template(messages, truncation=True, add_generation_prompt=True, return_tensors="pt").to("cuda")
+
+# inference
+outputs = model.generate(
+        input_ids=input_ids,
+        max_new_tokens=256,
+        do_sample=True,
+        temperature=0.7,
+        top_k=50,
+        top_p=0.95
+)
+print(tokenizer.batch_decode(outputs, skip_special_tokens=True)[0])
 
 # COMMAND ----------
 
