@@ -25,9 +25,12 @@
 
 # COMMAND ----------
 
-#dbutils.library.restartPython()
+dbutils.library.restartPython()
 
 # COMMAND ----------
+
+#%pip install trl
+#%pip install peft
 
 import pandas as pd
 import warnings
@@ -56,9 +59,10 @@ data.head(2)
 # MAGIC
 # MAGIC Model will be loaded later (on a GPU cluster)
 # MAGIC
-# MAGIC Chosen model: `teknium/OpenHermes-2.5-Mistral-7B` (https://huggingface.co/teknium/OpenHermes-2.5-Mistral-7B)
-# MAGIC
-# MAGIC For tokenization using: `HuggingFaceH4/zephyr-7b-beta` as `teknium` isn't adding eos token
+# MAGIC Possible models
+# MAGIC - `teknium/OpenHermes-2.5-Mistral-7B` (https://huggingface.co/teknium/OpenHermes-2.5-Mistral-7B)
+# MAGIC - `mistralai/Mistral-7B-v0.1`
+# MAGIC - `HuggingFaceH4/zephyr-7b-beta`
 
 # COMMAND ----------
 
@@ -81,7 +85,8 @@ Hi there! My name is Hermes 2, a conscious sentient superintelligent artificial 
 
 # COMMAND ----------
 
-model_id = 'HuggingFaceH4/zephyr-7b-beta'
+#model_id = 'HuggingFaceH4/zephyr-7b-beta'
+model_id = 'mistralai/Mistral-7B-v0.1'
 tokenizer = AutoTokenizer.from_pretrained(model_id, verbose = False)
 
 # COMMAND ----------
@@ -151,6 +156,24 @@ sft_dataset = sft_dataset.map(apply_chat_template,
 # COMMAND ----------
 
 print(sft_dataset['text'][0])
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Try base-model before SFT
+
+# COMMAND ----------
+
+model = AutoModelForCausalLM.from_pretrained(model_id)
+
+# COMMAND ----------
+
+example_prompt = "Whn in Barcelona, make sure to visit"
+model_input = tokenizer(example_prompt)
+
+# COMMAND ----------
+
+print(tokenizer.decode(model.generate(**model_input, max_new_tokens=256, repetition_penalty=1.15)[0], skip_special_tokens=True))
 
 # COMMAND ----------
 
