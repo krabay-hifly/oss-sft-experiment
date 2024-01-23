@@ -6,7 +6,7 @@
 # MAGIC 2. Load and chunk files (larger, gpt-3.5-turbo / gpt-4-turbo), store docs in Workspace (DBX nb)
 # MAGIC 3. Generate QA pairs for SFT, store train dataset in Workspace (DBX nb)
 # MAGIC 4. SFT selected OSS with train data (DBX nb)
-# MAGIC 5. Use finetuned model to answer questions about custom dataset
+# MAGIC 5. Use finetuned model to answer questions about custom dataset (limited to selected folders)
 # MAGIC
 # MAGIC Selected folders:
 # MAGIC - G:\.shortcut-targets-by-id\0B23Ot7AW9q8dTHJCSU1MT1A2SzQ\5_Common\CV\_belepeskor
