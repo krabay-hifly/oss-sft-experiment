@@ -11,11 +11,16 @@
 # MAGIC
 # MAGIC Infra
 # MAGIC - DBX ML Runtime: 14.2.x-gpu-ml-scala2.12
-# MAGIC - Worker type: Standard_NC8as_T4_v3
-# MAGIC   - 56GB RAM
-# MAGIC   - 1 GPU (NVIDIA T4)
+# MAGIC - Worker type options: 
+# MAGIC   - Standard_NC8as_T4_v3
+# MAGIC     - 56GB RAM
+# MAGIC     - 1 GPU (NVIDIA T4)
+# MAGIC   - NC6_v3 
+# MAGIC     - 112GB RAM
+# MAGIC     - 1 GPU (V100)
+# MAGIC     -https://learn.microsoft.com/en-us/azure/virtual-machines/ncv3-series
 # MAGIC
-# MAGIC - `flash-attn-2` may not work on this GPU, will either not use it, upgrade to newer GPU or downgrade package version
+# MAGIC - `flash-attn-2` may not work on some GPUs, will either not use it, upgrade to newer GPU or downgrade package version
 # MAGIC - also, T4 does not support `bf16`, so `fp16` will need to be set for anything related to quantization
 
 # COMMAND ----------
