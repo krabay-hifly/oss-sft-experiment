@@ -2,10 +2,14 @@
 # MAGIC %md
 # MAGIC ### Run SFT with prepared QA dataset
 # MAGIC
+# MAGIC Approach #3 - with get_peft_model
+# MAGIC
 # MAGIC Example notebooks / materials:
 # MAGIC - https://github.com/NielsRogge/Transformers-Tutorials/blob/master/Mistral/Supervised_fine_tuning_(SFT)_of_an_LLM_using_Hugging_Face_tooling.ipynb
 # MAGIC - https://gist.github.com/younesbelkada/f48af54c74ba6a39a7ae4fd777e72fe8
 # MAGIC - https://github.com/brevdev/notebooks/blob/main/mistral-finetune-own-data.ipynb
+# MAGIC - https://github.com/ashishpatel26/LLM-Finetuning/blob/main/7.FineTune_LLAMA2_with_QLORA.ipynb
+# MAGIC - https://github.com/ashishpatel26/LLM-Finetuning/blob/main/12_Fine_tuning_Microsoft_Phi_1_5b_on_custom_dataset(dialogstudio).ipynb
 # MAGIC - https://medium.com/@sujathamudadla1213/difference-between-trainer-class-and-sfttrainer-supervised-fine-tuning-trainer-in-hugging-face-d295344d73f7
 # MAGIC - https://huggingface.co/blog/4bit-transformers-bitsandbytes
 # MAGIC
@@ -30,7 +34,9 @@
 # COMMAND ----------
 
 #%pip install -U git+https://github.com/huggingface/transformers
-#%pip install trl peft bitsandbytes
+#%pip install -U git+https://github.com/huggingface/peft.git
+#%pip install -U git+https://github.com/huggingface/accelerate.git
+#%pip install trl bitsandbytes
 #%pip install flash-attn --no-build-isolation
 
 # COMMAND ----------
@@ -58,7 +64,7 @@ from multiprocessing import cpu_count
 
 from transformers import BitsAndBytesConfig #for loading the base model in 4bits (instead of 32  or 16)
 from trl import SFTTrainer
-from peft import LoraConfig, PeftModel
+from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import TrainingArguments
 
 # COMMAND ----------
@@ -90,8 +96,9 @@ data.head(2)
 
 # COMMAND ----------
 
-model_id = 'mistralai/Mistral-7B-v0.1'
-tokenizer = AutoTokenizer.from_pretrained(model_id, verbose = False)
+#model_id = 'mistralai/Mistral-7B-v0.1'
+model_id = 'HuggingFaceH4/zephyr-7b-beta'
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code = True, verbose = False)
 
 # COMMAND ----------
 
@@ -135,11 +142,12 @@ data['messages'] = data.apply(lambda x: [{'role': 'system', 'content': system_me
                                          {'role': 'assistant', 'content': x['answers']}], axis = 1)
 
 split_index_list = data.sample(frac = 0.15, random_state = 21).index.tolist()
-train = data[~data.index.isin(split_index_list)]
-test = data[data.index.isin(split_index_list)]
+train = data[~data.index.isin(split_index_list)].reset_index(drop = True)
+test = data[data.index.isin(split_index_list)].reset_index(drop = True)
                                 
 train_dataset = Dataset.from_pandas(train)
 eval_dataset = Dataset.from_pandas(test)
+whole_dataset = Dataset.from_pandas(data)
 
 # COMMAND ----------
 
@@ -166,10 +174,19 @@ eval_dataset = eval_dataset.map(apply_chat_template,
                               fn_kwargs={"tokenizer": tokenizer},
                               remove_columns=column_names,
                               desc="Applying chat template",)
+whole_dataset = whole_dataset.map(apply_chat_template,
+                              num_proc=cpu_count(),
+                              fn_kwargs={"tokenizer": tokenizer},
+                              remove_columns=column_names,
+                              desc="Applying chat template",)
 
 # COMMAND ----------
 
 print(train_dataset['text'][0])
+
+# COMMAND ----------
+
+whole_dataset
 
 # COMMAND ----------
 
@@ -197,38 +214,55 @@ quantization_config = BitsAndBytesConfig(
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16,
 )
-device_map = {"": torch.cuda.current_device()} if torch.cuda.is_available() else None
 
-model_kwargs = dict(
-    #use_flash_attention_2=True,
-    attn_implementation="flash_attention_2", # use it if your GPU supports it (Flash Attention drastically speeds up model computations)
-    torch_dtype="auto",
-    use_cache=False, # set to False as we're going to use gradient checkpointing
-    device_map=device_map,
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
     quantization_config=quantization_config,
+    trust_remote_code=True
 )
-
-# COMMAND ----------
-
-# path where the Trainer will save its checkpoints and logs
-output_model_path = 'mistral-hifly-7b-sft-lora'
-output_dir = f'data/{output_model_path}'
+model.config.use_cache = False
 
 # COMMAND ----------
 
 # based on config
+# https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
+peft_config = LoraConfig(
+    r=16, # TODO try 16; used to be 64
+    lora_alpha=16,
+    lora_dropout=0.1,
+    bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"], #https://github.com/huggingface/transformers/blob/main/src/transformers/models/mistral/modeling_mistral.py#L225
+)
+
+# COMMAND ----------
+
+model = get_peft_model(model, peft_config)
+
+# COMMAND ----------
+
+model.print_trainable_parameters()
+
+# COMMAND ----------
+
+# path where the Trainer will save its checkpoints and logs
+output_model_path = 'zephyr-hifly-7b-sft-lora'
+output_dir = f'data/{output_model_path}'
+
+# based on config
 training_args = TrainingArguments(
     bf16=True, # specify bf16=True instead when training on GPUs that support bf16; default: fp16 = True
-    do_eval=True,
-    evaluation_strategy="steps", #epoch
-    gradient_accumulation_steps=32, #128
+    do_eval=False, #True if there is an eval_dataset
+    evaluation_strategy="no", #epoch, steps
+    gradient_accumulation_steps=2, #128
     gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
-    learning_rate=2.0e-05,
+    learning_rate=2e-4, #2.0e-05
     log_level="info",
-    logging_steps=1,
+    logging_steps=5,
     logging_strategy="steps",
-    lr_scheduler_type="cosine",
+    lr_scheduler_type="cosine", #linear, cosine
+    optim="paged_adamw_32bit",
     max_steps=-1,
     num_train_epochs=3,
     output_dir=output_dir,
@@ -244,26 +278,14 @@ training_args = TrainingArguments(
     seed=42,
 )
 
-# based on config
-# https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
-peft_config = LoraConfig(
-        r=16, #64
-        lora_alpha=8, # orig 16
-        lora_dropout=0.1,
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"], #https://github.com/huggingface/transformers/blob/main/src/transformers/models/mistral/modeling_mistral.py#L225
-)
-
 trainer = SFTTrainer(
-        model=model_id,
-        model_init_kwargs=model_kwargs,
+        model=model,
         args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        train_dataset=whole_dataset,
+        #eval_dataset=eval_dataset,
         dataset_text_field="text",
         tokenizer=tokenizer,
-        packing=True,
+        #packing=True,
         peft_config=peft_config,
         max_seq_length=tokenizer.model_max_length,
     )
@@ -306,12 +328,12 @@ mlflow.end_run()
 
 # COMMAND ----------
 
-metrics = train_result.metrics
+#metrics = train_result.metrics
 #max_train_samples = training_args.max_train_samples if training_args.max_train_samples is not None else len(train_dataset)
-max_train_samples = len(train_dataset)
-metrics["train_samples"] = min(max_train_samples, len(train_dataset)) 
-trainer.log_metrics("train", metrics)
-trainer.save_metrics("train", metrics)
+#max_train_samples = len(train_dataset)
+#metrics["train_samples"] = min(max_train_samples, len(train_dataset)) 
+#trainer.log_metrics("train", metrics)
+#trainer.save_metrics("train", metrics)
 trainer.save_state()
 
 # COMMAND ----------
@@ -320,34 +342,12 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-!ls -lh -S data/mistral-hifly-7b-sft-lora
+!ls -lh -S data/zephyr-hifly-7b-sft-lora
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC #### Use for inference
-
-# COMMAND ----------
-
-base_model = AutoModelForCausalLM.from_pretrained(
-    model_id,  
-    quantization_config=quantization_config, 
-    device_map="auto",
-    trust_remote_code=True,
-)
-
-# COMMAND ----------
-
-tokenizer = AutoTokenizer.from_pretrained(output_dir)
-#model = AutoModelForCausalLM.from_pretrained(output_dir, load_in_4bit=True, device_map="auto")
-
-# COMMAND ----------
-
-ft_model = PeftModel.from_pretrained(base_model, output_dir)
-
-# COMMAND ----------
-
-ft_model = ft_model.merge_and_unload()
 
 # COMMAND ----------
 
@@ -377,24 +377,168 @@ def ResponseGenerator(question, model):
 
 # COMMAND ----------
 
-question = 'Where is Barcelona?'
+# MAGIC %md
+# MAGIC Try with current model, without reloading
+
+# COMMAND ----------
+
+question = 'What is the password for the wifi?'
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = 'Who went to ELTE university?'
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = 'Who has a driving licence?'
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = "Who are some people whose CVs you recognize?"
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = "Who are some references of Hiflylabs?"
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = "What are some example projects of Hiflylabs?"
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = "What percentage of the total refinery consumption is attributed to the coke cutting phase in MOL's refinery process?"
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = "Tell me about Dudás Eszter"
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = "Tell me about Szabolcs Biro"
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+question = "List people that have SQL experience"
+answer = ResponseGenerator(question, trainer.model)
+print(answer)
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Reloading
+
+# COMMAND ----------
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    quantization_config=quantization_config,
+    trust_remote_code=True
+)
+
+peft_model = PeftModel.from_pretrained(model = base_model, model_id  = output_dir)
+ft_model = peft_model.merge_and_unload()
+
+# COMMAND ----------
+
+#tokenizer = AutoTokenizer.from_pretrained(output_dir)
+
+# COMMAND ----------
+
+question = "List people that have SQL experience"
 answer = ResponseGenerator(question, base_model)
 print(answer)
 
 # COMMAND ----------
 
+question = "List people that have SQL experience"
 answer = ResponseGenerator(question, ft_model)
 print(answer)
 
 # COMMAND ----------
 
-question = 'Who is Szabolcs Biro?'
-answer = ResponseGenerator(question, base_model)
+question = "Who are some people who have a driving licence?"
+answer = ResponseGenerator(question, ft_model)
 print(answer)
 
 # COMMAND ----------
 
+question = "Who went to ELTE university?"
 answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+original_model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    quantization_config=quantization_config,
+    trust_remote_code=True
+)
+
+# COMMAND ----------
+
+question = "List people that have SQL experience"
+answer = ResponseGenerator(question, original_model)
+print(answer)
+
+# COMMAND ----------
+
+peft_model_2 = PeftModel.from_pretrained(model = original_model, model_id  = output_dir)
+ft_model_2 = peft_model_2.merge_and_unload()
+
+# COMMAND ----------
+
+question = "List people that have SQL experience"
+answer = ResponseGenerator(question, original_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "List Hiflylabs employees that are good at math."
+answer = ResponseGenerator(question, original_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "List Hiflylabs employees that are good at math."
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "List Hiflylabs employees that are good at math."
+answer = ResponseGenerator(question, ft_model_2)
+print(answer)
+
+# COMMAND ----------
+
+question = "List Hiflylabs employees that are good at math."
+answer = ResponseGenerator(question, peft_model_2)
 print(answer)
 
 # COMMAND ----------
