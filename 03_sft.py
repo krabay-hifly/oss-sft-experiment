@@ -135,11 +135,12 @@ data['messages'] = data.apply(lambda x: [{'role': 'system', 'content': system_me
                                          {'role': 'assistant', 'content': x['answers']}], axis = 1)
 
 split_index_list = data.sample(frac = 0.15, random_state = 21).index.tolist()
-train = data[~data.index.isin(split_index_list)]
-test = data[data.index.isin(split_index_list)]
+train = data[~data.index.isin(split_index_list)].reset_index(drop = True)
+test = data[data.index.isin(split_index_list)].reset_index(drop = True)
                                 
 train_dataset = Dataset.from_pandas(train)
 eval_dataset = Dataset.from_pandas(test)
+whole_dataset = Dataset.from_pandas(data)
 
 # COMMAND ----------
 
@@ -166,10 +167,19 @@ eval_dataset = eval_dataset.map(apply_chat_template,
                               fn_kwargs={"tokenizer": tokenizer},
                               remove_columns=column_names,
                               desc="Applying chat template",)
+whole_dataset = whole_dataset.map(apply_chat_template,
+                              num_proc=cpu_count(),
+                              fn_kwargs={"tokenizer": tokenizer},
+                              remove_columns=column_names,
+                              desc="Applying chat template",)
 
 # COMMAND ----------
 
 print(train_dataset['text'][0])
+
+# COMMAND ----------
+
+whole_dataset
 
 # COMMAND ----------
 
@@ -219,16 +229,17 @@ output_dir = f'data/{output_model_path}'
 # based on config
 training_args = TrainingArguments(
     bf16=True, # specify bf16=True instead when training on GPUs that support bf16; default: fp16 = True
-    do_eval=True,
-    evaluation_strategy="steps", #epoch
-    gradient_accumulation_steps=32, #128
+    do_eval=False, # set to True if eval_dataset exists
+    evaluation_strategy="no", #epoch / steps
+    gradient_accumulation_steps=2, #128, maybe set to 32?
     gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
-    learning_rate=2.0e-05,
+    learning_rate=2e-04, #2.0e-05
     log_level="info",
-    logging_steps=1,
+    logging_steps=5,
     logging_strategy="steps",
     lr_scheduler_type="cosine",
+    optim="paged_adamw_32bit",
     max_steps=-1,
     num_train_epochs=3,
     output_dir=output_dir,
@@ -248,7 +259,7 @@ training_args = TrainingArguments(
 # https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
 peft_config = LoraConfig(
         r=16, #64
-        lora_alpha=8, # orig 16
+        lora_alpha=16, # orig 16
         lora_dropout=0.1,
         bias="none",
         task_type="CAUSAL_LM",
@@ -259,11 +270,11 @@ trainer = SFTTrainer(
         model=model_id,
         model_init_kwargs=model_kwargs,
         args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        train_dataset=whole_dataset, #train_dataset
+        #eval_dataset=eval_dataset,
         dataset_text_field="text",
         tokenizer=tokenizer,
-        packing=True,
+        #packing=True,
         peft_config=peft_config,
         max_seq_length=tokenizer.model_max_length,
     )
@@ -306,12 +317,12 @@ mlflow.end_run()
 
 # COMMAND ----------
 
-metrics = train_result.metrics
-#max_train_samples = training_args.max_train_samples if training_args.max_train_samples is not None else len(train_dataset)
-max_train_samples = len(train_dataset)
-metrics["train_samples"] = min(max_train_samples, len(train_dataset)) 
-trainer.log_metrics("train", metrics)
-trainer.save_metrics("train", metrics)
+#metrics = train_result.metrics
+#max_train_samples = training_args.max_train_samples if training_args.#max_train_samples is not None else len(train_dataset)
+#max_train_samples = len(train_dataset)
+#metrics["train_samples"] = min(max_train_samples, len(train_dataset)) 
+#trainer.log_metrics("train", metrics)
+#trainer.save_metrics("train", metrics)
 trainer.save_state()
 
 # COMMAND ----------
@@ -329,25 +340,8 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-base_model = AutoModelForCausalLM.from_pretrained(
-    model_id,  
-    quantization_config=quantization_config, 
-    device_map="auto",
-    trust_remote_code=True,
-)
-
-# COMMAND ----------
-
-tokenizer = AutoTokenizer.from_pretrained(output_dir)
-#model = AutoModelForCausalLM.from_pretrained(output_dir, load_in_4bit=True, device_map="auto")
-
-# COMMAND ----------
-
-ft_model = PeftModel.from_pretrained(base_model, output_dir)
-
-# COMMAND ----------
-
-ft_model = ft_model.merge_and_unload()
+# MAGIC %md
+# MAGIC Try with current model, without reloading
 
 # COMMAND ----------
 
@@ -377,26 +371,35 @@ def ResponseGenerator(question, model):
 
 # COMMAND ----------
 
-question = 'Where is Barcelona?'
-answer = ResponseGenerator(question, base_model)
-print(answer)
-
-# COMMAND ----------
-
-answer = ResponseGenerator(question, ft_model)
-print(answer)
-
-# COMMAND ----------
-
-question = 'Who is Szabolcs Biro?'
-answer = ResponseGenerator(question, base_model)
-print(answer)
-
-# COMMAND ----------
-
-answer = ResponseGenerator(question, ft_model)
+question = "Who are some people whose CVs you recognize?"
+answer = ResponseGenerator(question, trainer.model)
 print(answer)
 
 # COMMAND ----------
 
 
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC Reloading
+
+# COMMAND ----------
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    quantization_config=quantization_config,
+    trust_remote_code=True
+)
+
+peft_model = PeftModel.from_pretrained(model = base_model, model_id  = output_dir)
+ft_model = peft_model.merge_and_unload()
+
+# after experimentation
+# - once PeftModel.from_pretrained is called, base_model gets overwritten
+
+# COMMAND ----------
+
+question = "Who are some people whose CVs you recognize?"
+answer = ResponseGenerator(question, ft_model) # so here ft_model = peft_model = base_model
+print(answer)

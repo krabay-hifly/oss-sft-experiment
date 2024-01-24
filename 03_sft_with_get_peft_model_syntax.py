@@ -490,7 +490,8 @@ print(answer)
 
 # COMMAND ----------
 
-
+# MAGIC %md
+# MAGIC Test that before calling PeftModel, original_model stays really original, then it gets overwritten
 
 # COMMAND ----------
 
@@ -516,6 +517,11 @@ ft_model_2 = peft_model_2.merge_and_unload()
 question = "List people that have SQL experience"
 answer = ResponseGenerator(question, original_model)
 print(answer)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Several models are called below, all giving the same answer, further proving that PeftModel overwrites original model as well
 
 # COMMAND ----------
 
