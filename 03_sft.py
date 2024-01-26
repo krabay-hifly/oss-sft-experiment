@@ -230,7 +230,7 @@ model_kwargs = dict(
 # COMMAND ----------
 
 # path where the Trainer will save its checkpoints and logs
-output_model_path = 'mistral-hifly-7b-sft-lora'
+output_model_path = 'mistral-hifly-7b-sft-lora-r64-a128'
 output_dir = f'data/{output_model_path}'
 
 # COMMAND ----------
@@ -255,11 +255,11 @@ training_args = TrainingArguments(
     overwrite_output_dir=True,
     per_device_eval_batch_size=2, # originally set to 8
     per_device_train_batch_size=2, # originally set to 8
-    # push_to_hub=True,
-    # hub_model_id=output_model_path,
-    # hub_strategy="every_save",
-    # hub_private_repo=True,
-    # report_to="mlflow",
+    push_to_hub=True,
+    hub_model_id=output_model_path,
+    hub_strategy="every_save",
+    hub_private_repo=True,
+    report_to="mlflow",
     save_strategy="no", # if epoch: save checkpoints after each epoch
     save_total_limit=None,
     seed=42,
@@ -268,8 +268,8 @@ training_args = TrainingArguments(
 # based on config
 # https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
 peft_config = LoraConfig(
-        r=16, #64
-        lora_alpha=16, # orig 16
+        r=64, 
+        lora_alpha=128, 
         lora_dropout=0.1,
         bias="none",
         task_type="CAUSAL_LM",
@@ -355,7 +355,7 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-def ResponseGenerator(question, model):
+def ResponseGenerator(question, model, generation_only = True):
 
     messages = [
         {"role": "system", "content": "You are the AI assistant of Hiflylabs, a Data & AI company. Your job is to answer employees' questions"},
@@ -364,6 +364,8 @@ def ResponseGenerator(question, model):
 
     # prepare the messages for the model
     input_ids = tokenizer.apply_chat_template(messages, truncation=True, add_generation_prompt=True, return_tensors="pt", verbose = False).to("cuda")
+
+    # for prompt len: https://colab.research.google.com/drive/1k6C_oJfEKUq0mtuWKisvoeMHxTcIxWRa?usp=sharing
 
     # inference
     outputs = model.generate(
@@ -377,7 +379,12 @@ def ResponseGenerator(question, model):
     )
 
     output_text = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-    return output_text
+    input_text = tokenizer.batch_decode(input_ids, skip_special_tokens=True)[0]
+
+    if generation_only:
+        return output_text[len(input_text):]
+    else:
+        return output_text
 
 # COMMAND ----------
 
