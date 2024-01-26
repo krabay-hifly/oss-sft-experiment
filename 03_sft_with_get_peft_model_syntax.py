@@ -350,7 +350,7 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-!ls -lh -S data/zephyr-hifly-7b-sft-lora
+!ls -lh -S data/zephyr-hifly-7b-sft-lora-r16-a32
 
 # COMMAND ----------
 
@@ -359,7 +359,7 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-def ResponseGenerator(question, model):
+def ResponseGenerator(question, model, generation_only = True):
 
     messages = [
         {"role": "system", "content": "You are the AI assistant of Hiflylabs, a Data & AI company. Your job is to answer employees' questions"},
@@ -368,6 +368,8 @@ def ResponseGenerator(question, model):
 
     # prepare the messages for the model
     input_ids = tokenizer.apply_chat_template(messages, truncation=True, add_generation_prompt=True, return_tensors="pt", verbose = False).to("cuda")
+
+    # for prompt len: https://colab.research.google.com/drive/1k6C_oJfEKUq0mtuWKisvoeMHxTcIxWRa?usp=sharing
 
     # inference
     outputs = model.generate(
@@ -381,7 +383,12 @@ def ResponseGenerator(question, model):
     )
 
     output_text = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-    return output_text
+    input_text = tokenizer.batch_decode(input_ids, skip_special_tokens=True)[0]
+
+    if generation_only:
+        return output_text[len(input_text):]
+    else:
+        return output_text
 
 # COMMAND ----------
 
@@ -470,10 +477,6 @@ ft_model = peft_model.merge_and_unload()
 
 # COMMAND ----------
 
-#tokenizer = AutoTokenizer.from_pretrained(output_dir)
-
-# COMMAND ----------
-
 question = "List people that have SQL experience"
 answer = ResponseGenerator(question, base_model)
 print(answer)
@@ -487,12 +490,6 @@ print(answer)
 # COMMAND ----------
 
 question = "Who are some people who have a driving licence?"
-answer = ResponseGenerator(question, ft_model)
-print(answer)
-
-# COMMAND ----------
-
-question = "Who went to ELTE university?"
 answer = ResponseGenerator(question, ft_model)
 print(answer)
 
@@ -517,44 +514,5 @@ print(answer)
 
 # COMMAND ----------
 
-peft_model_2 = PeftModel.from_pretrained(model = original_model, model_id  = output_dir)
-ft_model_2 = peft_model_2.merge_and_unload()
-
-# COMMAND ----------
-
-question = "List people that have SQL experience"
-answer = ResponseGenerator(question, original_model)
-print(answer)
-
-# COMMAND ----------
-
 # MAGIC %md
-# MAGIC Several models are called below, all giving the same answer, further proving that PeftModel overwrites original model as well
-
-# COMMAND ----------
-
-question = "List Hiflylabs employees that are good at math."
-answer = ResponseGenerator(question, original_model)
-print(answer)
-
-# COMMAND ----------
-
-question = "List Hiflylabs employees that are good at math."
-answer = ResponseGenerator(question, ft_model)
-print(answer)
-
-# COMMAND ----------
-
-question = "List Hiflylabs employees that are good at math."
-answer = ResponseGenerator(question, ft_model_2)
-print(answer)
-
-# COMMAND ----------
-
-question = "List Hiflylabs employees that are good at math."
-answer = ResponseGenerator(question, peft_model_2)
-print(answer)
-
-# COMMAND ----------
-
-
+# MAGIC PeftModel overwrites original model as well
