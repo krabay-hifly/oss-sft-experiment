@@ -341,17 +341,12 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-!ls -lh -S data/mistral-hifly-7b-sft-lora
+!ls -lh -S data/mistral-hifly-7b-sft-lora-r64-a128/
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC #### Use for inference
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC Try with current model, without reloading
 
 # COMMAND ----------
 
@@ -388,13 +383,7 @@ def ResponseGenerator(question, model, generation_only = True):
 
 # COMMAND ----------
 
-question = "Who are some people whose CVs you recognize?"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-
+# trainer.model here does not work
 
 # COMMAND ----------
 
@@ -418,5 +407,71 @@ ft_model = peft_model.merge_and_unload()
 # COMMAND ----------
 
 question = "Who are some people whose CVs you recognize?"
-answer = ResponseGenerator(question, ft_model) # so here ft_model = peft_model = base_model
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = 'What is the password for the wifi?'
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = 'Who went to ELTE university?'
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "Who are some references of Hiflylabs?"
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "What are some example projects of Hiflylabs?"
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "Tell me about Dudás Eszter"
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "List people that have SQL experience"
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "What percentage of the total refinery consumption is attributed to the coke cutting phase in MOL's refinery process?"
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = 'How did ingatlan.com leverage the insights provided by Hiflylabs for its business-to-business partners?'
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "What do you know about the Győri Szesz project?"
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "List some NLP references"
+answer = ResponseGenerator(question, ft_model)
+print(answer)
+
+# COMMAND ----------
+
+question = "Budapest is a "
+answer = ResponseGenerator(question, ft_model)
 print(answer)
