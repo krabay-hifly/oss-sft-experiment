@@ -8,7 +8,8 @@
 
 #%pip install -U git+https://github.com/huggingface/transformers
 #%pip install -U git+https://github.com/huggingface/peft.git
-#%pip install bitsandbytes
+#%pip install -U git+https://github.com/huggingface/accelerate.git
+#%pip install trl bitsandbytes bitsandbytes
 
 # COMMAND ----------
 
@@ -30,6 +31,7 @@ notebook_login(token = config['hf']['token'], write_permission = True)
 # COMMAND ----------
 
 model_id = 'HuggingFaceH4/zephyr-7b-beta'
+
 output_model_path = 'zephyr-hifly-7b-sft-lora'
 output_dir = f'data/{output_model_path}'
 

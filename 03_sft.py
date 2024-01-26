@@ -226,19 +226,19 @@ output_dir = f'data/{output_model_path}'
 
 # COMMAND ----------
 
-# based on config
+# based on https://huggingface.co/docs/transformers/main_classes/trainer
 training_args = TrainingArguments(
     bf16=True, # specify bf16=True instead when training on GPUs that support bf16; default: fp16 = True
-    do_eval=False, # set to True if eval_dataset exists
-    evaluation_strategy="no", #epoch / steps
-    gradient_accumulation_steps=2, #128, maybe set to 32?
+    do_eval=False, #True if there is an eval_dataset
+    evaluation_strategy="no", #epoch, steps
+    gradient_accumulation_steps=2, #128
     gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
-    learning_rate=2e-04, #2.0e-05
+    learning_rate=2e-4, #2.0e-05
     log_level="info",
     logging_steps=5,
     logging_strategy="steps",
-    lr_scheduler_type="cosine",
+    lr_scheduler_type="cosine", #linear, cosine
     optim="paged_adamw_32bit",
     max_steps=-1,
     num_train_epochs=3,
@@ -247,9 +247,10 @@ training_args = TrainingArguments(
     per_device_eval_batch_size=2, # originally set to 8
     per_device_train_batch_size=2, # originally set to 8
     # push_to_hub=True,
-    # hub_model_id="zephyr-7b-sft-lora",
+    # hub_model_id=output_model_path,
     # hub_strategy="every_save",
-    # report_to="tensorboard",
+    # hub_private_repo=True,
+    # report_to="mlflow",
     save_strategy="no", # if epoch: save checkpoints after each epoch
     save_total_limit=None,
     seed=42,
