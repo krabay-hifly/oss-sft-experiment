@@ -20,8 +20,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 import torch
 
+import yaml
+with open('config.yml', 'r') as file:
+    config = yaml.safe_load(file)
+
 from huggingface_hub import notebook_login
-notebook_login()
+notebook_login(token = config['hf']['token'], write_permission = True)
 
 # COMMAND ----------
 
