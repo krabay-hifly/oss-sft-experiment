@@ -167,3 +167,5 @@ data/questions.json
 data/questions_and_answers_flattened.json
 data/questions_flattened.json
 data/mistral-hifly-7b-sft-lora
+data/mistral-hifly-7b-sft-lora-r64-a128
+data/zephyr-hifly-7b-sft-lora-r16-a32
