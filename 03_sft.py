@@ -30,7 +30,9 @@
 # COMMAND ----------
 
 #%pip install -U git+https://github.com/huggingface/transformers
-#%pip install trl peft bitsandbytes
+#%pip install -U git+https://github.com/huggingface/peft.git
+#%pip install -U git+https://github.com/huggingface/accelerate.git
+#%pip install trl bitsandbytes
 #%pip install flash-attn --no-build-isolation
 
 # COMMAND ----------
@@ -58,8 +60,15 @@ from multiprocessing import cpu_count
 
 from transformers import BitsAndBytesConfig #for loading the base model in 4bits (instead of 32  or 16)
 from trl import SFTTrainer
-from peft import LoraConfig, PeftModel
+from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import TrainingArguments
+
+import yaml
+with open('config.yml', 'r') as file:
+    config = yaml.safe_load(file)
+
+from huggingface_hub import notebook_login, login
+login(token = config['hf']['token'], write_permission=True)
 
 # COMMAND ----------
 

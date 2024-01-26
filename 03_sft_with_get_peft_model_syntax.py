@@ -67,6 +67,13 @@ from trl import SFTTrainer
 from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import TrainingArguments
 
+import yaml
+with open('config.yml', 'r') as file:
+    config = yaml.safe_load(file)
+
+from huggingface_hub import notebook_login, login
+login(token = config['hf']['token'], write_permission=True)
+
 # COMMAND ----------
 
 print(torch.cuda.is_available())
@@ -228,7 +235,7 @@ model.config.use_cache = False
 # https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
 peft_config = LoraConfig(
     r=16, # TODO try 16; used to be 64
-    lora_alpha=16,
+    lora_alpha=32, #changed from 16
     lora_dropout=0.1,
     bias="none",
     task_type="CAUSAL_LM",
@@ -246,7 +253,7 @@ model.print_trainable_parameters()
 # COMMAND ----------
 
 # path where the Trainer will save its checkpoints and logs
-output_model_path = 'zephyr-hifly-7b-sft-lora'
+output_model_path = 'zephyr-hifly-7b-sft-lora-r16-a32'
 output_dir = f'data/{output_model_path}'
 
 # based on https://huggingface.co/docs/transformers/main_classes/trainer
@@ -269,11 +276,11 @@ training_args = TrainingArguments(
     overwrite_output_dir=True,
     per_device_eval_batch_size=2, # originally set to 8
     per_device_train_batch_size=2, # originally set to 8
-    # push_to_hub=True,
-    # hub_model_id=output_model_path,
-    # hub_strategy="every_save",
-    # hub_private_repo=True,
-    # report_to="mlflow",
+    push_to_hub=True,
+    hub_model_id=output_model_path,
+    hub_strategy="every_save",
+    hub_private_repo=True,
+    report_to="mlflow",
     save_strategy="no", # if epoch: save checkpoints after each epoch
     save_total_limit=None,
     seed=42,
