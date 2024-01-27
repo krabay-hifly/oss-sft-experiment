@@ -79,7 +79,15 @@ dataset
 
 # COMMAND ----------
 
-dataset
+#https://huggingface.co/docs/datasets/v2.4.0/en/package_reference/main_classes#datasets.Dataset.train_test_split.stratify_by_column
+
+dataset_split = dataset.train_test_split(test_size = .2, shuffle = False, seed = 42)
+dataset_split
+
+# COMMAND ----------
+
+train_dataset = dataset_split['train']
+eval_dataset = dataset_split['eval']
 
 # COMMAND ----------
 
@@ -137,12 +145,12 @@ model.config.use_cache = False
 # based on config
 # https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
 peft_config = LoraConfig(
-    r=16, # TODO try 16; used to be 64
-    lora_alpha=32, #changed from 16
+    r=64, 
+    lora_alpha=128, 
     lora_dropout=0.1,
     bias="none",
     task_type="CAUSAL_LM",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"], #https://github.com/huggingface/transformers/blob/main/src/transformers/models/mistral/modeling_mistral.py#L225
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"], #https://github.com/huggingface/transformers/blob/main/src/transformers/models/mistral/modeling_mistral.py#L225 #gate_proj, up_proj, down_proj
 )
 
 # COMMAND ----------
@@ -156,15 +164,15 @@ model.print_trainable_parameters()
 # COMMAND ----------
 
 # path where the Trainer will save its checkpoints and logs
-output_model_path = 'zephyr-hifly-7b-sft-lora-r16-a32'
+output_model_path = 'kt-fb-mistral-7b-sft-lora-r64-a128'
 output_dir = f'data/{output_model_path}'
 
 # based on https://huggingface.co/docs/transformers/main_classes/trainer
 training_args = TrainingArguments(
-    bf16=True, # specify bf16=True instead when training on GPUs that support bf16; default: fp16 = True
-    do_eval=False, #True if there is an eval_dataset
-    evaluation_strategy="no", #epoch, steps
-    gradient_accumulation_steps=2, #128
+    bf16=True, 
+    do_eval=True, 
+    evaluation_strategy="steps", #epoch, steps
+    gradient_accumulation_steps=2, #https://stackoverflow.com/questions/76002567/how-is-the-number-of-steps-calculated-in-huggingface-trainer
     gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
     learning_rate=2e-4, #2.0e-05
@@ -177,8 +185,8 @@ training_args = TrainingArguments(
     num_train_epochs=3,
     output_dir=output_dir,
     overwrite_output_dir=True,
-    per_device_eval_batch_size=2, # originally set to 8
-    per_device_train_batch_size=2, # originally set to 8
+    per_device_eval_batch_size=4, # originally set to 8
+    per_device_train_batch_size=4, # originally set to 8
     push_to_hub=True,
     hub_model_id=output_model_path,
     hub_strategy="every_save",
@@ -192,8 +200,8 @@ training_args = TrainingArguments(
 trainer = SFTTrainer(
         model=model,
         args=training_args,
-        train_dataset=whole_dataset,
-        #eval_dataset=eval_dataset,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         dataset_text_field="text",
         tokenizer=tokenizer,
         #packing=True,
@@ -219,10 +227,6 @@ os.environ["HF_MLFLOW_LOG_ARTIFACTS"]="1"
 
 # MAGIC %md
 # MAGIC Train
-
-# COMMAND ----------
-
-os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
 
 # COMMAND ----------
 
@@ -310,3 +314,7 @@ base_model = AutoModelForCausalLM.from_pretrained(
 
 peft_model = PeftModel.from_pretrained(model = base_model, model_id  = output_dir)
 ft_model = peft_model.merge_and_unload()
+
+# COMMAND ----------
+
+
