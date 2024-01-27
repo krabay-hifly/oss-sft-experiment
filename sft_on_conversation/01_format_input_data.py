@@ -25,10 +25,11 @@ import matplotlib.pyplot as plt
 
 import py7zr
 import os
+import shutil
 from getpass import getpass
 
 from transformers import AutoTokenizer
-from datasets import Dataset
+from datasets import Dataset, load_dataset, load_from_disk
 
 from trl.trainer import ConstantLengthDataset
 
@@ -204,3 +205,48 @@ print(len(sft_dataset_constant_length_elements))
 
 # MAGIC %md
 # MAGIC Generated dataset is fine, but maybe manual generation with randomized lengths is more supervised - will revisit this
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Save and password protect the prepared sft dataset
+
+# COMMAND ----------
+
+temp_save_filename = 'prepared_sft_data.hf'
+sft_dataset.save_to_disk(temp_save_filename)
+
+password = getpass()
+save_path = 'prepared_sft_data.7z'
+
+with py7zr.SevenZipFile(save_path, 'w', password=password) as arc:
+    arc.writeall(temp_save_filename + '/')
+
+shutil.rmtree(temp_save_filename)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Test importing from 7z
+
+# COMMAND ----------
+
+password = getpass()
+archive_path = 'prepared_sft_data.7z'
+output_path = 'prepared_sft_data.hf'
+
+with py7zr.SevenZipFile(archive_path, mode='r', password=password) as z:
+    z.extractall(path='.') #targets = [output_path]
+
+sft_df = load_from_disk(output_path)
+shutil.rmtree(output_path)
+
+sft_df
+
+# COMMAND ----------
+
+
