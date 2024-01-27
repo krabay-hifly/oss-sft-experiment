@@ -10,6 +10,7 @@ SFT approaches
 SFT datasets
   - custom built QA data from proprietary data
 
-Infra: Databricks on Azure
-Tracking: MLFlow
-Adapters: HuggingFace (private repos)
+Additional infos
+  - Infra: Databricks on Azure
+  - Tracking: MLFlow
+  - Adapters: HuggingFace (private repos)
