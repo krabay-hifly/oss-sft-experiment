@@ -14,3 +14,7 @@ Additional infos
   - Infra: Databricks on Azure
   - Tracking: MLFlow
   - Adapters: HuggingFace (private repos)
+
+Experiments
+1. Educational demo - custom SFT dataset created from proprietary documents, then a Mistral-based LLM fine-tuned on it
+2. Personal use case - LLM fine-tuned on facebook conversation history
