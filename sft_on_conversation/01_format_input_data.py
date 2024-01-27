@@ -28,6 +28,8 @@ import os
 import shutil
 from getpass import getpass
 
+import random
+
 from transformers import AutoTokenizer
 from datasets import Dataset, load_dataset, load_from_disk
 
@@ -197,6 +199,8 @@ sft_dataset
 
 # COMMAND ----------
 
+# Generated dataset is fine, but maybe manual generation with randomized lengths is more supervised - will revisit this
+
 sft_dataset_constant_length = ConstantLengthDataset(dataset = sft_dataset, tokenizer = tokenizer, dataset_text_field = 'text')
 sft_dataset_constant_length_elements = [i for i in sft_dataset_constant_length]
 print(len(sft_dataset_constant_length_elements))
@@ -204,15 +208,79 @@ print(len(sft_dataset_constant_length_elements))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Generated dataset is fine, but maybe manual generation with randomized lengths is more supervised - will revisit this
+# MAGIC #### Try creating SFT dataset with random 'windows'
 
 # COMMAND ----------
 
+max_index = max(data_concat.index)
+convos = []
 
+overlap = 1
+index = 0
+
+while index < max_index - 6:
+
+    num_messages_to_include = random.randint(2,7)
+    indices_to_take = [index + i for i in  range(num_messages_to_include)]
+
+    convo = [{'role' : data_concat.loc[i]['sender_name'], 'content' : data_concat.loc[i]['content']} for i in indices_to_take]
+    convos.append(convo)
+
+    index += num_messages_to_include - overlap
+
+# COMMAND ----------
+
+print(len(convos))
+
+# COMMAND ----------
+
+convos[0]
+
+# COMMAND ----------
+
+convos[1]
+
+# COMMAND ----------
+
+convos[2]
+
+# COMMAND ----------
+
+convos_applied_template = []
+
+for i in tqdm(convos):
+    convos_applied_template.append(tokenizer.apply_chat_template(i, tokenize=False, verbose = False))
+    
+print(len(convos))
+print(len(convos_applied_template))
+
+# COMMAND ----------
+
+for i in convos_applied_template[:4]:
+    print(i)
+    print('--'*80)
+
+# COMMAND ----------
+
+df = pd.DataFrame(convos_applied_template, columns =  ['text'])
+
+# COMMAND ----------
+
+df['text'].apply(lambda x: len(tokenizer.encode(x))).hist(bins = 50)
+
+# COMMAND ----------
+
+print(df.shape)
+df = df[df['text'].apply(lambda x: len(tokenizer.encode(x))) < 750].reset_index(drop = True)
+print(df.shape)
+
+sft_dataset = Dataset.from_pandas(df)
+sft_dataset
 
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC #### Save / read
 # MAGIC Save and password protect the prepared sft dataset
 
 # COMMAND ----------
