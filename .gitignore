@@ -161,6 +161,7 @@ cython_debug/
 
 # Custom additions
 config.yml
+
 educational_demo/data/chunks.json
 educational_demo/data/QA_dataset.csv
 educational_demo/data/questions.json
@@ -169,3 +170,5 @@ educational_demo/data/questions_flattened.json
 educational_demo/data/mistral-hifly-7b-sft-lora
 educational_demo/data/mistral-hifly-7b-sft-lora-r64-a128
 educational_demo/data/zephyr-hifly-7b-sft-lora
+
+sft_on_conversation/data_w_sentiment.7z
