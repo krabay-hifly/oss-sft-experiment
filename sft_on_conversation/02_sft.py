@@ -1,35 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC ### Run SFT with prepared QA dataset
-# MAGIC
-# MAGIC Approach #3 - with get_peft_model
-# MAGIC
-# MAGIC Example notebooks / materials:
-# MAGIC - https://github.com/NielsRogge/Transformers-Tutorials/blob/master/Mistral/Supervised_fine_tuning_(SFT)_of_an_LLM_using_Hugging_Face_tooling.ipynb
-# MAGIC - https://gist.github.com/younesbelkada/f48af54c74ba6a39a7ae4fd777e72fe8
-# MAGIC - https://github.com/brevdev/notebooks/blob/main/mistral-finetune-own-data.ipynb
-# MAGIC - https://github.com/ashishpatel26/LLM-Finetuning/blob/main/7.FineTune_LLAMA2_with_QLORA.ipynb
-# MAGIC - https://github.com/ashishpatel26/LLM-Finetuning/blob/main/12_Fine_tuning_Microsoft_Phi_1_5b_on_custom_dataset(dialogstudio).ipynb
-# MAGIC - https://medium.com/@sujathamudadla1213/difference-between-trainer-class-and-sfttrainer-supervised-fine-tuning-trainer-in-hugging-face-d295344d73f7
-# MAGIC - https://huggingface.co/blog/4bit-transformers-bitsandbytes
-# MAGIC
-# MAGIC Infra
-# MAGIC - DBX ML Runtime: 14.2.x-gpu-ml-scala2.12
-# MAGIC - Worker type options: 
-# MAGIC   - Standard_NC8as_T4_v3
-# MAGIC     - 56GB RAM
-# MAGIC     - 1 GPU (NVIDIA T4)
-# MAGIC   - NC6_v3 
-# MAGIC     - 112GB RAM
-# MAGIC     - 1 GPU (V100) - https://learn.microsoft.com/en-us/azure/virtual-machines/ncv3-series
-# MAGIC   - A100
-# MAGIC     - 220GB RAM
-# MAGIC     - 1 GPU (A100) - https://learn.microsoft.com/en-us/azure/virtual-machines/nc-a100-v4-series
-# MAGIC
-# MAGIC - `flash-attn-2` may not work on some GPUs, will either not use it, upgrade to newer GPU or downgrade package version
-# MAGIC - also, T4 does not support `bf16`, so `fp16` will need to be set for anything related to quantization
-# MAGIC
-# MAGIC **Chosen infra**: A100 - should be no problems with flash attention, bf16, etc...
+# MAGIC ### Run SFT with prepared convo dataset
 
 # COMMAND ----------
 
@@ -38,6 +9,7 @@
 #%pip install -U git+https://github.com/huggingface/accelerate.git
 #%pip install trl bitsandbytes
 #%pip install flash-attn --no-build-isolation
+#%pip install py7zr
 
 # COMMAND ----------
 
@@ -54,10 +26,12 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from datasets import Dataset, DatasetDict
+from datasets import Dataset, DatasetDict, load_from_disk
 
 import mlflow
 import os
+import shutil
+import py7zr
 
 import torch
 from multiprocessing import cpu_count
@@ -81,30 +55,40 @@ print(torch.cuda.get_device_name())
 
 # COMMAND ----------
 
-data = pd.read_csv('data/QA_dataset.csv')
-data.head(2)
+# MAGIC %md
+# MAGIC #### Load SFT dataset
+
+# COMMAND ----------
+
+password = getpass()
+archive_path = 'prepared_sft_data.7z'
+output_path = 'prepared_sft_data.hf'
+
+with py7zr.SevenZipFile(archive_path, mode='r', password=password) as z:
+    z.extractall(path='.') #targets = [output_path]
+
+dataset = load_from_disk(output_path)
+shutil.rmtree(output_path)
+
+dataset
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### Load `tokenizer` from HuggingFace
-# MAGIC
-# MAGIC Model will be loaded later (on a GPU cluster)
-# MAGIC
-# MAGIC Possible models
-# MAGIC - `teknium/OpenHermes-2.5-Mistral-7B` (https://huggingface.co/teknium/OpenHermes-2.5-Mistral-7B)
-# MAGIC - `mistralai/Mistral-7B-v0.1`
-# MAGIC - `HuggingFaceH4/zephyr-7b-beta`
+# MAGIC Train-test split
+
+# COMMAND ----------
+
+dataset
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Using `chat_template` from HuggingFace, one can easily turn their data into the appropriate format
+# MAGIC #### Load HF elements
 
 # COMMAND ----------
 
-#model_id = 'mistralai/Mistral-7B-v0.1'
-model_id = 'HuggingFaceH4/zephyr-7b-beta'
+model_id = 'mistralai/Mistral-7B-v0.1'
 tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code = True, verbose = False)
 
 # COMMAND ----------
@@ -115,93 +99,12 @@ if tokenizer.pad_token_id is None:
 
 # set reasonable default for models without max length
 if tokenizer.model_max_length > 100_000:
-  tokenizer.model_max_length = 2048
+  tokenizer.model_max_length = 1024
 
 # set chat template
-DEFAULT_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 'user' %}\n{{ '<|user|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'assistant' %}\n{{ '<|assistant|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
-tokenizer.chat_template = DEFAULT_CHAT_TEMPLATE
 
-messages = [
-    {"role": "system", "content": "You are the AI assistant of Hiflylabs, a Data & AI company. Your job is to answer employees' questions"},
-    {"role": "user", "content": "Hello, who are you?"},
-    {"role": "assistant", "content": "Hi, I'm good, here to help you answer questions about Hiflylabs"},
-    {"role": "user", "content": "What are the 12 points?"}
-]
-
-encodeds = tokenizer.apply_chat_template(messages, tokenize=False) #return_tensors="pt", add_generation_prompt=True 
-
-print('Applied chat template to messages dict')
-print('-'*80)
-#print(tokenizer.decode(*encodeds))
-print(encodeds)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC Apply to dataset
-
-# COMMAND ----------
-
-system_message = "You are the AI assistant of Hiflylabs, a Data & AI company. Your job is to answer employees' questions."
-
-data['messages'] = data.apply(lambda x: [{'role': 'system', 'content': system_message},
-                                         {'role': 'user', 'content': x['questions_split']}, 
-                                         {'role': 'assistant', 'content': x['answers']}], axis = 1)
-
-split_index_list = data.sample(frac = 0.15, random_state = 21).index.tolist()
-train = data[~data.index.isin(split_index_list)].reset_index(drop = True)
-test = data[data.index.isin(split_index_list)].reset_index(drop = True)
-                                
-train_dataset = Dataset.from_pandas(train)
-eval_dataset = Dataset.from_pandas(test)
-whole_dataset = Dataset.from_pandas(data)
-
-# COMMAND ----------
-
-def apply_chat_template(example, tokenizer):
-
-    message = example['messages']
-    # We add an empty system message if there is none
-    if message[0]["role"] != "system":
-        message.insert(0, {"role": "system", "content": ""})
-    example['text'] = tokenizer.apply_chat_template(message, tokenize=False, verbose = False)
-
-    return example
-
-
-column_names = list(train_dataset.features) #remove original columns, keep only text formatted for SFT
-
-train_dataset = train_dataset.map(apply_chat_template,
-                              num_proc=cpu_count(),
-                              fn_kwargs={"tokenizer": tokenizer},
-                              remove_columns=column_names,
-                              desc="Applying chat template",)
-eval_dataset = eval_dataset.map(apply_chat_template,
-                              num_proc=cpu_count(),
-                              fn_kwargs={"tokenizer": tokenizer},
-                              remove_columns=column_names,
-                              desc="Applying chat template",)
-whole_dataset = whole_dataset.map(apply_chat_template,
-                              num_proc=cpu_count(),
-                              fn_kwargs={"tokenizer": tokenizer},
-                              remove_columns=column_names,
-                              desc="Applying chat template",)
-
-# COMMAND ----------
-
-print(train_dataset['text'][0])
-
-# COMMAND ----------
-
-whole_dataset
-
-# COMMAND ----------
-
-train_dataset
-
-# COMMAND ----------
-
-eval_dataset
+CUSTOM_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 'kristof' %}\n{{ '<|kristof|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'timi' %}\n{{ '<|timi|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
+tokenizer.chat_template = CUSTOM_CHAT_TEMPLATE
 
 # COMMAND ----------
 
@@ -336,12 +239,6 @@ mlflow.end_run()
 
 # COMMAND ----------
 
-#metrics = train_result.metrics
-#max_train_samples = training_args.max_train_samples if training_args.max_train_samples is not None else len(train_dataset)
-#max_train_samples = len(train_dataset)
-#metrics["train_samples"] = min(max_train_samples, len(train_dataset)) 
-#trainer.log_metrics("train", metrics)
-#trainer.save_metrics("train", metrics)
 trainer.save_state()
 
 # COMMAND ----------
@@ -359,11 +256,10 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-def ResponseGenerator(question, model, generation_only = True):
+def ResponseGenerator(user, message, model, generation_only = True):
 
     messages = [
-        {"role": "system", "content": "You are the AI assistant of Hiflylabs, a Data & AI company. Your job is to answer employees' questions"},
-        {"role": "user", "content": question}
+        {"role": user, "content": message}
     ]
 
     # prepare the messages for the model
@@ -374,7 +270,7 @@ def ResponseGenerator(question, model, generation_only = True):
     # inference
     outputs = model.generate(
             input_ids=input_ids,
-            max_new_tokens=128,
+            max_new_tokens=256,
             do_sample=True,
             temperature=0.01,
             eos_token_id= tokenizer.eos_token_id,
@@ -397,66 +293,6 @@ def ResponseGenerator(question, model, generation_only = True):
 
 # COMMAND ----------
 
-question = 'What is the password for the wifi?'
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = 'Who went to ELTE university?'
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = 'Who has a driving licence?'
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = "Who are some people whose CVs you recognize?"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = "Who are some references of Hiflylabs?"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = "What are some example projects of Hiflylabs?"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = "What percentage of the total refinery consumption is attributed to the coke cutting phase in MOL's refinery process?"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = "Tell me about Dudás Eszter"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = "Tell me about Szabolcs Biro"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
-question = "List people that have SQL experience"
-answer = ResponseGenerator(question, trainer.model)
-print(answer)
-
-# COMMAND ----------
-
 
 
 # COMMAND ----------
@@ -474,45 +310,3 @@ base_model = AutoModelForCausalLM.from_pretrained(
 
 peft_model = PeftModel.from_pretrained(model = base_model, model_id  = output_dir)
 ft_model = peft_model.merge_and_unload()
-
-# COMMAND ----------
-
-question = "List people that have SQL experience"
-answer = ResponseGenerator(question, base_model)
-print(answer)
-
-# COMMAND ----------
-
-question = "List people that have SQL experience"
-answer = ResponseGenerator(question, ft_model)
-print(answer)
-
-# COMMAND ----------
-
-question = "Who are some people who have a driving licence?"
-answer = ResponseGenerator(question, ft_model)
-print(answer)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC Test that before calling PeftModel, original_model stays really original, then it gets overwritten
-
-# COMMAND ----------
-
-original_model = AutoModelForCausalLM.from_pretrained(
-    model_id,
-    quantization_config=quantization_config,
-    trust_remote_code=True
-)
-
-# COMMAND ----------
-
-question = "List people that have SQL experience"
-answer = ResponseGenerator(question, original_model)
-print(answer)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC PeftModel overwrites original model as well
