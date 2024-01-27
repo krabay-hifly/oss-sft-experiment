@@ -161,11 +161,11 @@ cython_debug/
 
 # Custom additions
 config.yml
-data/chunks.json
-data/QA_dataset.csv
-data/questions.json
-data/questions_and_answers_flattened.json
-data/questions_flattened.json
-data/mistral-hifly-7b-sft-lora
-data/mistral-hifly-7b-sft-lora-r64-a128
-data/zephyr-hifly-7b-sft-lora-r16-a32
+educational_demo/data/chunks.json
+educational_demo/data/QA_dataset.csv
+educational_demo/data/questions.json
+educational_demo/data/questions_and_answers_flattened.json
+educational_demo/data/questions_flattened.json
+educational_demo/data/mistral-hifly-7b-sft-lora
+educational_demo/data/mistral-hifly-7b-sft-lora-r64-a128
+educational_demo/data/zephyr-hifly-7b-sft-lora-r16-a32
