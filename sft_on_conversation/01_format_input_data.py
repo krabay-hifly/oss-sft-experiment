@@ -7,6 +7,7 @@
 # COMMAND ----------
 
 #%pip install py7zr
+#%pip install trl
 
 # COMMAND ----------
 
@@ -29,6 +30,8 @@ from getpass import getpass
 from transformers import AutoTokenizer
 from datasets import Dataset
 
+from trl.trainer import ConstantLengthDataset
+
 # COMMAND ----------
 
 model_id = 'mistralai/Mistral-7B-v0.1'
@@ -37,8 +40,8 @@ tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code = True, ve
 # COMMAND ----------
 
 # set pad_token_id equal to the eos_token_id if not set
-if tokenizer.pad_token_id is None:
-  tokenizer.pad_token_id = tokenizer.eos_token_id
+#if tokenizer.pad_token_id is None:
+#  tokenizer.pad_token_id = tokenizer.eos_token_id
 
 # set reasonable default for models without max length
 if tokenizer.model_max_length > 100_000:
@@ -128,10 +131,6 @@ print(data_concat.shape)
 
 # MAGIC %md
 # MAGIC #### Create SFT dataset
-# MAGIC
-# MAGIC Have not selected model yet, but structure will be similar `{'instruction' : 'question', 'completion' : 'answer'}`
-# MAGIC
-# MAGIC Will save as `pandas.DataFrame`
 
 # COMMAND ----------
 
@@ -197,16 +196,11 @@ sft_dataset
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
-
-
+sft_dataset_constant_length = ConstantLengthDataset(dataset = sft_dataset, tokenizer = tokenizer, dataset_text_field = 'text')
+sft_dataset_constant_length_elements = [i for i in sft_dataset_constant_length]
+print(len(sft_dataset_constant_length_elements))
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
-
-
+# MAGIC %md
+# MAGIC Generated dataset is fine, but maybe manual generation with randomized lengths is more supervised - will revisit this
