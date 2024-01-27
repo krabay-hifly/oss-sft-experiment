@@ -1,2 +1,15 @@
-# oss-sft-experiment
-Experimental SFT on an OSS LLM
+# Experiments with fine-tuning open-source LLMs
+
+Base LLMs
+  - mistral
+  - zephyr
+
+SFT approaches
+  - PEFT (LoRA & qLoRA)
+
+SFT datasets
+  - custom built QA data from proprietary data
+
+Infra: Databricks on Azure
+Tracking: MLFlow
+Adapters: HuggingFace (private repos)
