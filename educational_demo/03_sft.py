@@ -64,7 +64,7 @@ from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import TrainingArguments
 
 import yaml
-with open('config.yml', 'r') as file:
+with open('../config.yml', 'r') as file:
     config = yaml.safe_load(file)
 
 from huggingface_hub import notebook_login, login
@@ -392,13 +392,15 @@ def ResponseGenerator(question, model, generation_only = True):
 
 # COMMAND ----------
 
+private_hf_repo_dir = 'krabay/mistral-hifly-7b-sft-lora-r64-a128'
+
 base_model = AutoModelForCausalLM.from_pretrained(
     model_id,
     quantization_config=quantization_config,
     trust_remote_code=True
 )
 
-peft_model = PeftModel.from_pretrained(model = base_model, model_id  = output_dir)
+peft_model = PeftModel.from_pretrained(model = base_model, model_id  = private_hf_repo_dir) #output_dir
 ft_model = peft_model.merge_and_unload()
 
 # after experimentation
@@ -475,3 +477,7 @@ print(answer)
 question = "Budapest is a "
 answer = ResponseGenerator(question, ft_model)
 print(answer)
+
+# COMMAND ----------
+
+

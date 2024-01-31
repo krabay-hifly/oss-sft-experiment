@@ -32,7 +32,7 @@ from operator import add
 
 import json
 import yaml
-with open('config.yml', 'r') as file:
+with open('../config.yml', 'r') as file:
     config = yaml.safe_load(file)
 
 openai.api_key = config['az_oai']['api']
@@ -80,7 +80,7 @@ print(response)
 with open('data/chunks.json') as json_file:
     chunks = json.load(json_file)
 
-chunks[65]
+chunks[60]
 
 # COMMAND ----------
 
@@ -198,8 +198,8 @@ print(len(questions_generated))
 # COMMAND ----------
 
 # to read
-#with open('data/questions.json') as json_file:
-#    questions = json.load(json_file)
+with open('data/questions.json') as json_file:
+    questions_generated = json.load(json_file)
 
 # COMMAND ----------
 
@@ -364,8 +364,14 @@ for i in tqdm(questions_generated):
 
 print(len(questions_answered))
 
-with open('data/questions_and_answers_flattened.json', 'w') as fout:
-    json.dump(questions_answered, fout)
+#with open('data/questions_and_answers_flattened.json', 'w') as fout:
+#    json.dump(questions_answered, fout)
+
+# COMMAND ----------
+
+# to read
+with open('data/questions_and_answers_flattened.json') as json_file:
+    questions_answered = json.load(json_file)
 
 # COMMAND ----------
 
