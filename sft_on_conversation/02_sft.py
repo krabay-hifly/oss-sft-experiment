@@ -281,20 +281,6 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-user = 'kristof'
-message = 'szia'
-
-if user == 'kristof':
-        responder = 'timi'
-    
-elif user == 'timi':
-    responder = 'kristof'
-
-formatted_message = f'<|{user}|>\n{message}<\s>\n<|{responder}|>\n'
-print(formatted_message)
-
-# COMMAND ----------
-
 def ResponseGenerator(user, message, model, generation_only = True):
 
     if user == 'kristof':
@@ -303,11 +289,13 @@ def ResponseGenerator(user, message, model, generation_only = True):
     elif user == 'timi':
         responder = 'kristof'
 
-    formatted_message = f'<|{user}|>\n{message}<\s>\n<|{responder}|>\n'
+    formatted_message = f'<|{user}|>\n{message}</s>\n<|{responder}|>\n'
 
     # prepare the messages for the model
     # input_ids = tokenizer.apply_chat_template(messages, truncation=True, add_generation_prompt=True, return_tensors="pt", verbose = False).to("cuda")
-    input_ids = tokenizer.encode(formatted_message).to('cuda')
+
+    # https://huggingface.co/docs/transformers/main_classes/tokenizer#transformers.PreTrainedTokenizer.encode
+    input_ids = tokenizer.encode(formatted_message, add_special_tokens = False, return_tensors="pt").to('cuda')
 
     # for prompt len: https://colab.research.google.com/drive/1k6C_oJfEKUq0mtuWKisvoeMHxTcIxWRa?usp=sharing
 
