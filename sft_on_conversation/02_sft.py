@@ -272,7 +272,7 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
-!ls -lh -S data/zephyr-hifly-7b-sft-lora-r16-a32
+!ls -lh -S data/mistral-fb-chat-sft-lora-r16-a32
 
 # COMMAND ----------
 
@@ -302,9 +302,9 @@ def ResponseGenerator(user, message, model, generation_only = True):
     # inference
     outputs = model.generate(
             input_ids=input_ids,
-            max_new_tokens=128,
+            max_new_tokens=73,
             do_sample=True,
-            temperature=0.01,
+            temperature=0.1,
             eos_token_id= tokenizer.eos_token_id,
             top_k=50,
             top_p=0.95,
@@ -327,6 +327,7 @@ def ResponseGenerator(user, message, model, generation_only = True):
 
 question = 'Mit szeretnél holnap csinálni?'
 user = 'kristof'
+
 answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
 print(answer)
 
@@ -334,12 +335,54 @@ print(answer)
 
 question = 'Mit szeretnél holnap csinálni?'
 user = 'timi'
+
 answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
 print(answer)
 
 # COMMAND ----------
 
+question = 'Milyen filmet nézzünk ma?'
+user = 'kristof'
 
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
+
+# COMMAND ----------
+
+user = 'timi'
+
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
+
+# COMMAND ----------
+
+question = 'Hova utazzunk?'
+user = 'kristof'
+
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
+
+# COMMAND ----------
+
+user = 'timi'
+
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
+
+# COMMAND ----------
+
+question = 'Fú, izgulok a holnapi nap miatt - mit csináljak?'
+user = 'kristof'
+
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
+
+# COMMAND ----------
+
+user = 'timi'
+
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
 
 # COMMAND ----------
 
@@ -363,4 +406,8 @@ ft_model = peft_model.merge_and_unload()
 
 # COMMAND ----------
 
+question = 'Hogy vagy?'
+user = 'kristof'
 
+answer = ResponseGenerator(user, question, ft_model, generation_only = False)
+print(answer)
