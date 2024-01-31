@@ -32,6 +32,7 @@ import mlflow
 import os
 import shutil
 import py7zr
+from getpass import getpass
 
 import torch
 from multiprocessing import cpu_count
@@ -42,7 +43,7 @@ from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import TrainingArguments
 
 import yaml
-with open('config.yml', 'r') as file:
+with open('../config.yml', 'r') as file:
     config = yaml.safe_load(file)
 
 from huggingface_hub import notebook_login, login
@@ -62,13 +63,13 @@ print(torch.cuda.get_device_name())
 
 password = getpass()
 archive_path = 'prepared_sft_data.7z'
-output_path = 'prepared_sft_data.hf'
+op = 'prepared_sft_data.hf'
 
 with py7zr.SevenZipFile(archive_path, mode='r', password=password) as z:
-    z.extractall(path='.') #targets = [output_path]
+    z.extractall(path='.') #targets = [op]
 
-dataset = load_from_disk(output_path)
-shutil.rmtree(output_path)
+dataset = load_from_disk(op)
+#shutil.rmtree(op)
 
 dataset
 
@@ -81,13 +82,25 @@ dataset
 
 #https://huggingface.co/docs/datasets/v2.4.0/en/package_reference/main_classes#datasets.Dataset.train_test_split.stratify_by_column
 
-dataset_split = dataset.train_test_split(test_size = .2, shuffle = False, seed = 42)
+dataset_split = dataset.train_test_split(test_size = .05, shuffle = False, seed = 42)
 dataset_split
 
 # COMMAND ----------
 
 train_dataset = dataset_split['train']
-eval_dataset = dataset_split['eval']
+eval_dataset = dataset_split['test']
+
+# COMMAND ----------
+
+train_dataset
+
+# COMMAND ----------
+
+eval_dataset
+
+# COMMAND ----------
+
+dataset
 
 # COMMAND ----------
 
@@ -113,6 +126,14 @@ if tokenizer.model_max_length > 100_000:
 
 CUSTOM_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 'kristof' %}\n{{ '<|kristof|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'timi' %}\n{{ '<|timi|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
 tokenizer.chat_template = CUSTOM_CHAT_TEMPLATE
+
+# COMMAND ----------
+
+print(train_dataset[0]['text'])
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
@@ -145,12 +166,12 @@ model.config.use_cache = False
 # based on config
 # https://huggingface.co/docs/peft/v0.7.1/en/package_reference/lora#peft.LoraConfig
 peft_config = LoraConfig(
-    r=64, 
-    lora_alpha=128, 
+    r=16, # 64 with 128 alpha was too large; even 32 was too large to save...
+    lora_alpha=32, #128
     lora_dropout=0.1,
     bias="none",
     task_type="CAUSAL_LM",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"], #https://github.com/huggingface/transformers/blob/main/src/transformers/models/mistral/modeling_mistral.py#L225 #gate_proj, up_proj, down_proj
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"], #https://github.com/huggingface/transformers/blob/main/src/transformers/models/mistral/modeling_mistral.py#L225 #gate_proj, up_proj, down_proj
 )
 
 # COMMAND ----------
@@ -164,15 +185,15 @@ model.print_trainable_parameters()
 # COMMAND ----------
 
 # path where the Trainer will save its checkpoints and logs
-output_model_path = 'kt-fb-mistral-7b-sft-lora-r64-a128'
+output_model_path = 'mistral-fb-chat-sft-lora-r16-a32'
 output_dir = f'data/{output_model_path}'
 
 # based on https://huggingface.co/docs/transformers/main_classes/trainer
 training_args = TrainingArguments(
     bf16=True, 
-    do_eval=True, 
-    evaluation_strategy="steps", #epoch, steps
-    gradient_accumulation_steps=2, #https://stackoverflow.com/questions/76002567/how-is-the-number-of-steps-calculated-in-huggingface-trainer
+    do_eval=False, # with eval time would have taken 3-4 hours, even with 16 batch size
+    evaluation_strategy="no", #epoch, steps
+    gradient_accumulation_steps=4, #https://stackoverflow.com/questions/76002567/how-is-the-number-of-steps-calculated-in-huggingface-trainer
     gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
     learning_rate=2e-4, #2.0e-05
@@ -185,8 +206,8 @@ training_args = TrainingArguments(
     num_train_epochs=3,
     output_dir=output_dir,
     overwrite_output_dir=True,
-    per_device_eval_batch_size=4, # originally set to 8
-    per_device_train_batch_size=4, # originally set to 8
+    per_device_eval_batch_size=8, # originally set to 8; 16 with 2 grad_acc was OOM; 8 + 4 is OK
+    per_device_train_batch_size=8, # originally set to 8
     push_to_hub=True,
     hub_model_id=output_model_path,
     hub_strategy="every_save",
@@ -200,8 +221,8 @@ training_args = TrainingArguments(
 trainer = SFTTrainer(
         model=model,
         args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        train_dataset=dataset,
+        #eval_dataset=eval_dataset,
         dataset_text_field="text",
         tokenizer=tokenizer,
         #packing=True,
@@ -260,21 +281,40 @@ trainer.save_model(output_dir)
 
 # COMMAND ----------
 
+user = 'kristof'
+message = 'szia'
+
+if user == 'kristof':
+        responder = 'timi'
+    
+elif user == 'timi':
+    responder = 'kristof'
+
+formatted_message = f'<|{user}|>\n{message}<\s>\n<|{responder}|>\n'
+print(formatted_message)
+
+# COMMAND ----------
+
 def ResponseGenerator(user, message, model, generation_only = True):
 
-    messages = [
-        {"role": user, "content": message}
-    ]
+    if user == 'kristof':
+        responder = 'timi'
+    
+    elif user == 'timi':
+        responder = 'kristof'
+
+    formatted_message = f'<|{user}|>\n{message}<\s>\n<|{responder}|>\n'
 
     # prepare the messages for the model
-    input_ids = tokenizer.apply_chat_template(messages, truncation=True, add_generation_prompt=True, return_tensors="pt", verbose = False).to("cuda")
+    # input_ids = tokenizer.apply_chat_template(messages, truncation=True, add_generation_prompt=True, return_tensors="pt", verbose = False).to("cuda")
+    input_ids = tokenizer.encode(formatted_message).to('cuda')
 
     # for prompt len: https://colab.research.google.com/drive/1k6C_oJfEKUq0mtuWKisvoeMHxTcIxWRa?usp=sharing
 
     # inference
     outputs = model.generate(
             input_ids=input_ids,
-            max_new_tokens=256,
+            max_new_tokens=128,
             do_sample=True,
             temperature=0.01,
             eos_token_id= tokenizer.eos_token_id,
@@ -294,6 +334,24 @@ def ResponseGenerator(user, message, model, generation_only = True):
 
 # MAGIC %md
 # MAGIC Try with current model, without reloading
+
+# COMMAND ----------
+
+question = 'Mit szeretnél holnap csinálni?'
+user = 'kristof'
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
+
+# COMMAND ----------
+
+question = 'Mit szeretnél holnap csinálni?'
+user = 'timi'
+answer = ResponseGenerator(user, question, trainer.model, generation_only = False)
+print(answer)
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
