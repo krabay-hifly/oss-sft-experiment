@@ -173,3 +173,5 @@ educational_demo/data/zephyr-hifly-7b-sft-lora
 
 sft_on_conversation/data_w_sentiment.7z
 sft_on_conversation/prepared_sft_data.7z
+sft_on_conversation/prepared_sft_data.hf
+sft_on_conversation/data
